@@ -426,7 +426,7 @@ with col2:
             st.session_state["play_once"] = True
 
             # trigger rerun to show the reply
-            st.experimental_rerun()
+            st.rerun()
 
     # ✅ Outside the upload block, near bottom of app (after chat rendering):
     if st.session_state.get("play_once"):
