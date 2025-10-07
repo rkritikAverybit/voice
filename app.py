@@ -1,6 +1,6 @@
 
-# app1_streamlit_cloud_final_clean_audio.py
-import os, io, base64, tempfile, time, hashlib, urllib.request, re
+# app1_streamlit_cloud_final_autoplay_fixed_loop.py
+import os, io, base64, tempfile, time, urllib.request, re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -8,7 +8,6 @@ from typing import Optional
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import av
-
 import numpy as np
 import soundfile as sf
 
@@ -17,6 +16,7 @@ from pydub.utils import which
 
 import nest_asyncio
 nest_asyncio.apply()
+
 try:
     import edge_tts, asyncio
 except Exception:
@@ -37,23 +37,6 @@ try:
     from openai import OpenAI
 except Exception:
     OpenAI = None
-
-def autoplay_audio_html(file_path: str):
-    """Embed and autoplay MP3 directly in chat using base64 audio data."""
-    try:
-        with open(file_path, "rb") as f:
-            data = f.read()
-        b64 = base64.b64encode(data).decode()
-        html = f"""
-        <audio autoplay="true">
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-        """
-        return html
-    except Exception as e:
-        st.warning(f"Audio playback issue: {e}")
-        return ""
-
 
 def ensure_ffmpeg():
     ffmpeg_dir = "/tmp/ffmpeg_bin"
@@ -93,6 +76,7 @@ VOICE_OPTIONS = {
     "Neerja (Female, Indian)": "en-IN-NeerjaNeural",
     "Prabhat (Male, Indian)": "en-IN-PrabhatNeural",
 }
+
 INTENT_PATTERNS = {
     "greeting": ["hello","hi","hey","good morning","good evening"],
     "meditation": ["meditate","meditation","breathing","breath","relax","calm"],
@@ -112,7 +96,6 @@ def ensure_state():
     ss.setdefault("conversation_state","idle")
     ss.setdefault("audio_response_path", None)
     ss.setdefault("webrtc_frames", [])
-    ss.setdefault("last_uploaded_hash", None)
 ensure_state()
 
 def cleanup_old_audio():
@@ -135,15 +118,27 @@ def update_conversation_stats(intent:str):
         prof["topics_discussed"].append(intent)
     prof["total_conversations"] += 1
 
+def autoplay_audio_html(file_path: str) -> str:
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        b64 = base64.b64encode(data).decode()
+        return f'''
+            <audio autoplay="true">
+                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+        '''
+    except Exception as e:
+        st.warning(f"Audio playback issue: {e}")
+        return ""
+
 @st.cache_resource
 def init_openai_client():
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        st.error("Missing OPENROUTER_API_KEY in Secrets.")
-        st.stop()
+        st.error("Missing OPENROUTER_API_KEY in Secrets."); st.stop()
     if OpenAI is None:
-        st.error("openai package missing.")
-        st.stop()
+        st.error("openai package missing."); st.stop()
     return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 openai_client = init_openai_client()
 
@@ -198,17 +193,15 @@ def get_ai_reply(user_message:str)->str:
 def ndarray_to_int16(arr: np.ndarray) -> np.ndarray:
     if arr.ndim == 2:
         arr = arr[0]
-    if arr.dtype == np.float32 or arr.dtype == np.float64:
-        arr = np.clip(arr, -1.0, 1.0)
-        arr = (arr * 32767.0).astype(np.int16)
+    if arr.dtype in (np.float32, np.float64):
+        arr = np.clip(arr, -1.0, 1.0); arr = (arr * 32767.0).astype(np.int16)
     elif arr.dtype != np.int16:
         arr = arr.astype(np.int16)
     return arr
 
 def save_pcm_to_wav(pcm_frames: bytes, file_path: str, sample_rate: int = 48000):
     audio_array = np.frombuffer(pcm_frames, dtype=np.int16)
-    if audio_array.size == 0:
-        return False
+    if audio_array.size == 0: return False
     if np.max(np.abs(audio_array)) < 300:
         st.info("🕊️ The recording seems very quiet. Try speaking closer to the mic.")
     sf.write(file_path, audio_array, sample_rate, subtype='PCM_16')
@@ -222,12 +215,9 @@ def transcribe_audio_bytes(raw_wav_bytes:bytes)->Optional[str]:
         try:
             rms = audioop.rms(raw_wav_bytes, 2)
             if rms < 120:
-                st.warning("🕊️ Too much silence detected. Please try recording again.")
-                return None
-        except Exception:
-            pass
-        r = sr.Recognizer()
-        r.energy_threshold = 200; r.dynamic_energy_threshold = True
+                st.warning("🕊️ Too much silence detected. Please try recording again."); return None
+        except Exception: pass
+        r = sr.Recognizer(); r.energy_threshold = 200; r.dynamic_energy_threshold = True
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(raw_wav_bytes); tmp_path = tmp.name
         text = None
@@ -238,12 +228,9 @@ def transcribe_audio_bytes(raw_wav_bytes:bytes)->Optional[str]:
                     text = r.recognize_google(audio, language="en-US")
                 break
             except sr.UnknownValueError:
-                st.warning("🤔 Could not understand the audio. Try again clearly.")
-                break
+                st.warning("🤔 Could not understand the audio. Try again clearly."); break
             except sr.RequestError:
-                st.info(f"🌐 Retrying transcription... ({attempt+1}/3)")
-                time.sleep(1.0)
-                continue
+                st.info(f"🌐 Retrying transcription... ({attempt+1}/3)"); time.sleep(1.0); continue
         os.unlink(tmp_path)
         return text.strip() if text else None
     except Exception as e:
@@ -253,8 +240,7 @@ def audio_upload_to_text(uploaded)->Optional[str]:
     if sr is None:
         st.error("SpeechRecognition not installed."); return None
     try:
-        r = sr.Recognizer()
-        r.energy_threshold = 200; r.dynamic_energy_threshold = True
+        r = sr.Recognizer(); r.energy_threshold = 200; r.dynamic_energy_threshold = True
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(uploaded.getbuffer()); tmp_path = tmp.name
         text = None
@@ -265,12 +251,9 @@ def audio_upload_to_text(uploaded)->Optional[str]:
                     text = r.recognize_google(audio, language="en-US")
                 break
             except sr.UnknownValueError:
-                st.warning("🤔 Could not understand the audio. Try again clearly.")
-                break
+                st.warning("🤔 Could not understand the audio. Try again clearly."); break
             except sr.RequestError:
-                st.info(f"🌐 Retrying transcription... ({attempt+1}/3)")
-                time.sleep(1.0)
-                continue
+                st.info(f"🌐 Retrying transcription... ({attempt+1}/3)"); time.sleep(1.0); continue
         os.unlink(tmp_path)
         return text.strip() if text else None
     except Exception as e:
@@ -285,22 +268,18 @@ def tts_sentence_to_mp3(text:str, voice:str, out_path:Path)->bool:
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
             nest_asyncio.apply(loop)
             loop.run_until_complete(_run())
             return True
         elif gTTS:
-            gTTS(text=text, lang="en").save(str(out_path))
-            return True
+            gTTS(text=text, lang="en").save(str(out_path)); return True
         else:
             return False
     except Exception as e:
-        st.warning(f"TTS error: {e}")
-        return False
+        st.warning(f"TTS error: {e}"); return False
 
 def stream_tts_response(text: str, voice: Optional[str] = None):
-    st.session_state.conversation_state = "speaking"
     voice = voice or st.session_state.user_profile.get("voice_preference","en-US-JennyNeural")
     parts = re.split(r'(?<=[.!?])\s+', text.strip())
     parts = [p.strip() for p in parts if p.strip()]
@@ -320,16 +299,14 @@ def stream_tts_response(text: str, voice: Optional[str] = None):
     final_path = AUDIO_DIR / f"response_{int(time.time())}.mp3"
     combined.export(final_path, format="mp3")
     st.session_state.audio_response_path = str(final_path)
-    #st.audio(str(final_path), format="audio/mp3")
     for p in sentence_paths:
         try: os.remove(p)
         except: pass
-    st.session_state.conversation_state = "idle"
     return [str(final_path)]
 
 def record_browser_audio_ui():
     st.markdown("#### Browser Voice Recorder")
-    st.caption("Click Start to record, Stop when done, then press Transcribe.\nIf mic doesn't start, allow microphone permission in your browser.")
+    st.caption("Click Start to record, Stop when done, then press Transcribe. If mic doesn't start, allow microphone permission in your browser.")
     try:
         ctx = webrtc_streamer(
             key="webrtc-audio",
@@ -338,18 +315,15 @@ def record_browser_audio_ui():
             media_stream_constraints={"audio": True, "video": False},
         )
     except AttributeError:
-        st.warning("⚠️ Browser mic stream stopped unexpectedly. Click Restart Recorder.")
-        ctx = None
+        st.warning("⚠️ Browser mic stream stopped unexpectedly. Click Restart Recorder."); ctx = None
     except Exception as e:
-        st.error(f"🎤 Mic setup issue: {e}")
-        ctx = None
+        st.error(f"🎤 Mic setup issue: {e}"); ctx = None
     if (ctx is None) or (ctx and not ctx.state.playing):
-        st.button("🔁 Restart Recorder", on_click=lambda: st.rerun())
+        st.button("🔁 Restart Recorder", on_click=lambda: st.experimental_rerun())
     if ctx and ctx.state.playing:
         frames = ctx.audio_receiver.get_frames(timeout=1)
         for f in frames:
             arr = f.to_ndarray()
-            # normalize to int16 mono
             if isinstance(arr, np.ndarray):
                 if arr.ndim == 2: arr = arr[0]
                 if arr.dtype in (np.float32, np.float64):
@@ -379,9 +353,8 @@ def record_browser_audio_ui():
                         st.success(f"Transcribed: {text}")
                         with st.spinner("Thinking..."): reply = get_ai_reply(text)
                         with st.spinner("Responding..."):
-                            paths = stream_tts_response(reply)
-                            if paths: st.session_state.audio_response_path = paths[-1]
-                        st.rerun()
+                            stream_tts_response(reply)
+                        st.experimental_rerun()
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
 
@@ -393,15 +366,14 @@ with st.sidebar:
     st.markdown("### Response Length")
     rl = st.radio("Style:", options=["short","medium","long"], index=1, horizontal=True)
     st.session_state.user_profile["response_length"] = rl
-    st.markdown("---")
-    st.markdown("### Your Journey")
+    st.markdown("---"); st.markdown("### Your Journey")
     st.metric("Conversations", st.session_state.user_profile["total_conversations"])
     if st.session_state.user_profile["topics_discussed"]:
         st.write("**Topics explored:**")
         for t in st.session_state.user_profile["topics_discussed"][:5]: st.write(f"• {t.capitalize()}")
     st.markdown("---")
     if st.button("Reset Conversation", use_container_width=True):
-        st.session_state.messages = []; st.rerun()
+        st.session_state.messages = []; st.experimental_rerun()
     st.caption("Powered by OpenRouter API")
 
 col1, col2 = st.columns([2,1])
@@ -409,58 +381,45 @@ with col1:
     st.markdown("### Conversation")
     chat = st.container(height=420)
     with chat:
-        for m in st.session_state.messages:
+        for i, m in enumerate(st.session_state.messages):
             if m["role"]=="user":
-                with st.chat_message("user", avatar="🧘"):st.markdown(f"**You:** {m['content']}")
+                with st.chat_message("user", avatar="🧘"):
+                    st.markdown(f"**You:** {m['content']}")
             else:
                 with st.chat_message("assistant", avatar="🌿"):
                     st.markdown(m["content"])
                     if (
-                    st.session_state.get("audio_response_path")
-                    and os.path.exists(st.session_state.audio_response_path)
-                    and m == st.session_state.messages[-1]
-                ):
-                        audio_html = autoplay_audio_html(st.session_state.audio_response_path)
-                        st.markdown(audio_html, unsafe_allow_html=True)
+                        i == len(st.session_state.messages) - 1
+                        and st.session_state.get("audio_response_path")
+                        and os.path.exists(st.session_state.audio_response_path)
+                    ):
+                        html = autoplay_audio_html(st.session_state.audio_response_path)
+                        if html:
+                            st.markdown(html, unsafe_allow_html=True)
+                            st.session_state.audio_response_path = None  # 🔄 stop loop
+
     if prompt := st.chat_input("Type your message..."):
         with st.spinner("Reflecting..."): reply = get_ai_reply(prompt)
         with st.spinner("Preparing voice response..."):
-            paths = stream_tts_response(reply)
-            if paths: st.session_state.audio_response_path = paths[-1]
-        st.rerun()
+            stream_tts_response(reply)
+        st.experimental_rerun()
 
 with col2:
     st.markdown("### Voice Controls (Cloud-friendly)")
     record_browser_audio_ui()
     st.markdown("---"); st.markdown("**Or upload a voice note**")
-    uploaded_audio = st.file_uploader(
-        "Upload audio (wav/mp3/m4a/flac)",
-        type=["wav", "mp3", "m4a", "flac"],
-        label_visibility="collapsed"
-    )
-
+    uploaded_audio = st.file_uploader("Upload audio (wav/mp3/m4a/flac)", type=["wav","mp3","m4a","flac"], label_visibility="collapsed")
     if uploaded_audio:
-        # Always process immediately when a file is uploaded
         with st.spinner("🎧 Transcribing your voice note..."):
             text = audio_upload_to_text(uploaded_audio)
-
         if text:
             st.success(f"Transcribed: {text}")
-
-            # Get AI reply
             with st.spinner("💬 Thinking..."):
                 reply = get_ai_reply(text)
-
-            # Generate and auto-play TTS voice reply
             with st.spinner("🎤 Responding..."):
-                paths = stream_tts_response(reply)
-                if paths:
-                    st.session_state.audio_response_path = paths[-1]
-
-            st.rerun()
-
-
-
+                stream_tts_response(reply)
+            st.experimental_rerun()
 
 cleanup_old_audio()
+
 st.markdown("<hr/><div style='text-align:center; color:#777; padding: 20px;'><p>Each breath is a new beginning</p></div>", unsafe_allow_html=True)
