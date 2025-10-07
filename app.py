@@ -98,6 +98,9 @@ def ensure_state():
     ss.setdefault("webrtc_frames", [])
 ensure_state()
 
+st.session_state.setdefault("upload_processed", False)
+
+
 def cleanup_old_audio():
     cutoff = datetime.now() - timedelta(hours=AUDIO_TTL_HOURS)
     for f in AUDIO_DIR.glob("response_*.mp3"):
@@ -395,12 +398,9 @@ with col1:
                     ):
                         html = autoplay_audio_html(st.session_state.audio_response_path)
                         if html:
-
                             st.markdown(html, unsafe_allow_html=True)
-                            # ✅ NEW: immediate reset + marker (prevents double-play even on cloud)
-                            last_played = st.session_state.audio_response_path
                             st.session_state.audio_response_path = None
-                            st.session_state["last_played_audio"] = last_played
+                            
 
     if prompt := st.chat_input("Type your message..."):
         with st.spinner("Reflecting..."): reply = get_ai_reply(prompt)
@@ -412,20 +412,35 @@ with col2:
     st.markdown("### Voice Controls (Cloud-friendly)")
     record_browser_audio_ui()
     st.markdown("---"); st.markdown("**Or upload a voice note**")
-    uploaded_audio = st.file_uploader("Upload audio (wav/mp3/m4a/flac)", type=["wav","mp3","m4a","flac"], label_visibility="collapsed")
-    if uploaded_audio:
+    uploaded_audio = st.file_uploader(
+        "Upload audio (wav/mp3/m4a/flac)",
+        type=["wav", "mp3", "m4a", "flac"],
+        label_visibility="collapsed"
+    )
+
+    if uploaded_audio and not st.session_state.upload_processed:
+        # 🔐 Lock so this block runs only once per upload
+        st.session_state.upload_processed = True
+
         with st.spinner("🎧 Transcribing your voice note..."):
             text = audio_upload_to_text(uploaded_audio)
 
         if text:
             st.success(f"Transcribed: {text}")
-
             with st.spinner("💬 Thinking..."):
                 reply = get_ai_reply(text)
-
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
-            st.rerun()
+
+            # Trigger a single rerun to display message + audio
+            st.experimental_rerun()
+
+    elif uploaded_audio and st.session_state.upload_processed:
+        st.info("✅ Voice note processed successfully. Upload a new file to continue.")
+    else:
+        # Reset lock when no file is selected
+        st.session_state.upload_processed = False
+
 
 
 
