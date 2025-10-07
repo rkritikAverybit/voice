@@ -422,11 +422,18 @@ with col2:
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
 
-            # 🧘 Reset audio path AFTER rerun-trigger to stop looping playback
-            current_audio = st.session_state.get("audio_response_path")
-            #st.rerun()
-            st.session_state.audio_response_path = None
-            st.rerun()
+            # ✅ NEW: temporary flag to allow single playback
+            st.session_state["play_once"] = True
+
+            # trigger rerun to show the reply
+            st.experimental_rerun()
+
+    # ✅ Outside the upload block, near bottom of app (after chat rendering):
+    if st.session_state.get("play_once"):
+        # after the chat + audio has rendered
+        st.session_state.audio_response_path = None
+        st.session_state["play_once"] = False
+
 
 cleanup_old_audio()
 
