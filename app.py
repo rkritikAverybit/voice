@@ -433,21 +433,32 @@ with col2:
     st.markdown("### Voice Controls (Cloud-friendly)")
     record_browser_audio_ui()
     st.markdown("---"); st.markdown("**Or upload a voice note**")
-    uploaded_audio = st.file_uploader("Upload audio (wav/mp3/m4a/flac)", type=["wav","mp3","m4a","flac"], label_visibility="collapsed")
+    uploaded_audio = st.file_uploader(
+        "Upload audio (wav/mp3/m4a/flac)",
+        type=["wav", "mp3", "m4a", "flac"],
+        label_visibility="collapsed"
+    )
+
     if uploaded_audio:
-        file_hash = hashlib.md5(uploaded_audio.getbuffer()).hexdigest()
-        if st.session_state.get("last_uploaded_hash") != file_hash:
-            st.session_state.last_uploaded_hash = file_hash
-            with st.spinner("Processing your voice..."): text = audio_upload_to_text(uploaded_audio)
-            if text:
-                st.success(f"Transcribed: {text}")
-                with st.spinner("Thinking..."): reply = get_ai_reply(text)
-                with st.spinner("Responding..."):
-                    paths = stream_tts_response(reply)
-                    if paths: st.session_state.audio_response_path = paths[-1]
+        # Always process immediately when a file is uploaded
+        with st.spinner("🎧 Transcribing your voice note..."):
+            text = audio_upload_to_text(uploaded_audio)
+
+        if text:
+            st.success(f"Transcribed: {text}")
+
+            # Get AI reply
+            with st.spinner("💬 Thinking..."):
+                reply = get_ai_reply(text)
+
+            # Generate and auto-play TTS voice reply
+            with st.spinner("🎤 Responding..."):
+                paths = stream_tts_response(reply)
+                if paths:
+                    st.session_state.audio_response_path = paths[-1]
+
             st.rerun()
-        else:
-            st.info("This audio has already been processed. Upload a new one to continue.")
+
 
 
 
