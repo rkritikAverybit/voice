@@ -426,7 +426,7 @@ with col2:
             current_audio = st.session_state.get("audio_response_path")
             #st.rerun()
             st.session_state.audio_response_path = None
-
+            st.rerun()
 
 cleanup_old_audio()
 
