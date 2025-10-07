@@ -412,13 +412,21 @@ with col2:
     if uploaded_audio:
         with st.spinner("🎧 Transcribing your voice note..."):
             text = audio_upload_to_text(uploaded_audio)
+
         if text:
             st.success(f"Transcribed: {text}")
+
             with st.spinner("💬 Thinking..."):
                 reply = get_ai_reply(text)
+
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
-            #st.rerun()
+
+            # 🧘 Reset audio path AFTER rerun-trigger to stop looping playback
+            current_audio = st.session_state.get("audio_response_path")
+            st.rerun()
+            st.session_state.audio_response_path = None
+
 
 cleanup_old_audio()
 
