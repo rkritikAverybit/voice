@@ -38,6 +38,23 @@ try:
 except Exception:
     OpenAI = None
 
+def autoplay_audio_html(file_path: str):
+    """Embed and autoplay MP3 directly in chat using base64 audio data."""
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        b64 = base64.b64encode(data).decode()
+        html = f"""
+        <audio autoplay="true">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+        return html
+    except Exception as e:
+        st.warning(f"Audio playback issue: {e}")
+        return ""
+
+
 def ensure_ffmpeg():
     ffmpeg_dir = "/tmp/ffmpeg_bin"
     ffmpeg_bin = os.path.join(ffmpeg_dir, "ffmpeg")
@@ -303,7 +320,7 @@ def stream_tts_response(text: str, voice: Optional[str] = None):
     final_path = AUDIO_DIR / f"response_{int(time.time())}.mp3"
     combined.export(final_path, format="mp3")
     st.session_state.audio_response_path = str(final_path)
-    st.audio(str(final_path), format="audio/mp3")
+    #st.audio(str(final_path), format="audio/mp3")
     for p in sentence_paths:
         try: os.remove(p)
         except: pass
@@ -394,9 +411,17 @@ with col1:
     with chat:
         for m in st.session_state.messages:
             if m["role"]=="user":
-                with st.chat_message("user", avatar="🧘"): st.markdown(f"**You:** {m['content']}")
+                with st.chat_message("user", avatar="🧘"):st.markdown(f"**You:** {m['content']}")
             else:
-                with st.chat_message("assistant", avatar="🌿"): st.markdown(m["content"])
+                with st.chat_message("assistant", avatar="🌿"):
+                    st.markdown(m["content"])
+                    if (
+                    st.session_state.get("audio_response_path")
+                    and os.path.exists(st.session_state.audio_response_path)
+                    and m == st.session_state.messages[-1]
+                ):
+                        audio_html = autoplay_audio_html(st.session_state.audio_response_path)
+                        st.markdown(audio_html, unsafe_allow_html=True)
     if prompt := st.chat_input("Type your message..."):
         with st.spinner("Reflecting..."): reply = get_ai_reply(prompt)
         with st.spinner("Preparing voice response..."):
@@ -424,8 +449,7 @@ with col2:
         else:
             st.info("This audio has already been processed. Upload a new one to continue.")
 
-if st.session_state.audio_response_path and os.path.exists(st.session_state.audio_response_path):
-    st.audio(st.session_state.audio_response_path, format="audio/mp3")
+
 
 cleanup_old_audio()
 st.markdown("<hr/><div style='text-align:center; color:#777; padding: 20px;'><p>Each breath is a new beginning</p></div>", unsafe_allow_html=True)
