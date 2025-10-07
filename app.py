@@ -433,7 +433,7 @@ with col2:
                 stream_tts_response(reply)
 
             # Trigger a single rerun to display message + audio
-            st.experimental_rerun()
+            st.rerun()
 
     elif uploaded_audio and st.session_state.upload_processed:
         st.info("✅ Voice note processed successfully. Upload a new file to continue.")
