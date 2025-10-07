@@ -395,8 +395,12 @@ with col1:
                     ):
                         html = autoplay_audio_html(st.session_state.audio_response_path)
                         if html:
+
                             st.markdown(html, unsafe_allow_html=True)
-                            st.session_state.audio_response_path = None  # 🔄 stop loop
+                            # ✅ NEW: immediate reset + marker (prevents double-play even on cloud)
+                            last_played = st.session_state.audio_response_path
+                            st.session_state.audio_response_path = None
+                            st.session_state["last_played_audio"] = last_played
 
     if prompt := st.chat_input("Type your message..."):
         with st.spinner("Reflecting..."): reply = get_ai_reply(prompt)
@@ -421,12 +425,10 @@ with col2:
 
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
-
-            # ✅ NEW: temporary flag to allow single playback
-            st.session_state["play_once"] = True
-
-            # trigger rerun to show the reply
             st.rerun()
+
+
+
 
     # ✅ Outside the upload block, near bottom of app (after chat rendering):
     if st.session_state.get("play_once"):
