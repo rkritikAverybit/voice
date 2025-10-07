@@ -307,9 +307,65 @@ def stream_tts_response(text: str, voice: Optional[str] = None):
         except: pass
     return [str(final_path)]
 
+# def record_browser_audio_ui():
+#     st.markdown("#### Browser Voice Recorder")
+#     st.caption("Click Start to record, Stop when done, then press Transcribe. If mic doesn't start, allow microphone permission in your browser.")
+#     try:
+#         ctx = webrtc_streamer(
+#             key="webrtc-audio",
+#             mode=WebRtcMode.SENDONLY,
+#             audio_receiver_size=1024,
+#             media_stream_constraints={"audio": True, "video": False},
+#         )
+#     except AttributeError:
+#         st.warning("⚠️ Browser mic stream stopped unexpectedly. Click Restart Recorder."); ctx = None
+#     except Exception as e:
+#         st.error(f"🎤 Mic setup issue: {e}"); ctx = None
+#     if (ctx is None) or (ctx and not ctx.state.playing):
+#         st.button("🔁 Restart Recorder", on_click=lambda: st.rerun())
+#     if ctx and ctx.state.playing:
+#         frames = ctx.audio_receiver.get_frames(timeout=1)
+#         for f in frames:
+#             arr = f.to_ndarray()
+#             if isinstance(arr, np.ndarray):
+#                 if arr.ndim == 2: arr = arr[0]
+#                 if arr.dtype in (np.float32, np.float64):
+#                     arr = np.clip(arr, -1.0, 1.0); arr = (arr * 32767.0).astype(np.int16)
+#                 elif arr.dtype != np.int16:
+#                     arr = arr.astype(np.int16)
+#                 st.session_state.webrtc_frames.append(arr.tobytes())
+#     c1,c2 = st.columns(2)
+#     with c1:
+#         if st.button("Clear Recording Buffer", use_container_width=True):
+#             st.session_state.webrtc_frames = []; st.success("Cleared recorded audio.")
+#     with c2:
+#         if st.button("Transcribe Recording", use_container_width=True):
+#             if not st.session_state.webrtc_frames:
+#                 st.warning("No audio recorded yet.")
+#             else:
+#                 raw_pcm = b"".join(st.session_state.webrtc_frames)
+#                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+#                     ok = save_pcm_to_wav(raw_pcm, tmp.name, sample_rate=48000)
+#                     tmp.seek(0); wav_bytes = tmp.read() if ok else b""
+#                 if not wav_bytes:
+#                     st.warning("No audio captured. Please try again.")
+#                 else:
+#                     with st.spinner("Transcribing recording..."):
+#                         text = transcribe_audio_bytes(wav_bytes)
+#                     if text:
+#                         st.success(f"Transcribed: {text}")
+#                         with st.spinner("Thinking..."): reply = get_ai_reply(text)
+#                         with st.spinner("Responding..."):
+#                             stream_tts_response(reply)
+#                         st.rerun()
+
 def record_browser_audio_ui():
-    st.markdown("#### Browser Voice Recorder")
-    st.caption("Click Start to record, Stop when done, then press Transcribe. If mic doesn't start, allow microphone permission in your browser.")
+    st.markdown("#### 🎙️ Browser Voice Recorder")
+    st.caption(
+        "Click **Start** to record, **Stop** when done, then press **Transcribe**.\n"
+        "If the mic doesn’t start, allow permission or click Restart."
+    )
+
     try:
         ctx = webrtc_streamer(
             key="webrtc-audio",
@@ -317,47 +373,71 @@ def record_browser_audio_ui():
             audio_receiver_size=1024,
             media_stream_constraints={"audio": True, "video": False},
         )
-    except AttributeError:
-        st.warning("⚠️ Browser mic stream stopped unexpectedly. Click Restart Recorder."); ctx = None
     except Exception as e:
-        st.error(f"🎤 Mic setup issue: {e}"); ctx = None
-    if (ctx is None) or (ctx and not ctx.state.playing):
-        st.button("🔁 Restart Recorder", on_click=lambda: st.rerun())
-    if ctx and ctx.state.playing:
-        frames = ctx.audio_receiver.get_frames(timeout=1)
-        for f in frames:
+        st.error(f"🎤 Microphone initialization error: {e}")
+        ctx = None
+
+    if ctx is None or not ctx.state.playing:
+        st.warning("⚠️ Microphone inactive. Click **Start** and allow access.")
+        if st.button("🔁 Restart Recorder"):
+            st.experimental_rerun()
+        return
+
+    # --- collect audio frames ---
+    new_frames = ctx.audio_receiver.get_frames(timeout=1)
+    for f in new_frames:
+        try:
             arr = f.to_ndarray()
-            if isinstance(arr, np.ndarray):
-                if arr.ndim == 2: arr = arr[0]
-                if arr.dtype in (np.float32, np.float64):
-                    arr = np.clip(arr, -1.0, 1.0); arr = (arr * 32767.0).astype(np.int16)
-                elif arr.dtype != np.int16:
-                    arr = arr.astype(np.int16)
-                st.session_state.webrtc_frames.append(arr.tobytes())
-    c1,c2 = st.columns(2)
+            if arr.ndim == 2:
+                arr = arr.mean(axis=0)        # mix to mono
+            if arr.dtype in (np.float32, np.float64):
+                arr = np.clip(arr, -1, 1)
+                arr = (arr * 32767).astype(np.int16)
+            st.session_state.webrtc_frames.append(arr.tobytes())
+        except Exception:
+            continue
+
+    # --- controls ---
+    c1, c2 = st.columns(2)
     with c1:
-        if st.button("Clear Recording Buffer", use_container_width=True):
-            st.session_state.webrtc_frames = []; st.success("Cleared recorded audio.")
+        if st.button("🧹 Clear Buffer", use_container_width=True):
+            st.session_state.webrtc_frames = []
+            st.success("Recording buffer cleared.")
+
     with c2:
-        if st.button("Transcribe Recording", use_container_width=True):
-            if not st.session_state.webrtc_frames:
-                st.warning("No audio recorded yet.")
+        if st.button("📝 Transcribe", use_container_width=True):
+            frames = st.session_state.webrtc_frames
+            total_len = len(b"".join(frames))
+            if total_len < 48000 * 2:  # roughly <1 second
+                st.warning("🎧 Recording too short. Please record at least 1 second.")
+                return
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                try:
+                    ok = save_pcm_to_wav(b"".join(frames), tmp.name, 48000)
+                except Exception as e:
+                    st.error(f"Could not save audio: {e}")
+                    return
+                tmp.seek(0)
+                wav_bytes = tmp.read()
+
+            if not wav_bytes:
+                st.warning("⚠️ No valid audio captured. Please try again.")
+                return
+
+            with st.spinner("🔎 Transcribing..."):
+                text = transcribe_audio_bytes(wav_bytes)
+
+            if text:
+                st.success(f"Transcribed: {text}")
+                with st.spinner("💬 Thinking..."):
+                    reply = get_ai_reply(text)
+                with st.spinner("🎤 Responding..."):
+                    stream_tts_response(reply)
+                st.experimental_rerun()
             else:
-                raw_pcm = b"".join(st.session_state.webrtc_frames)
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    ok = save_pcm_to_wav(raw_pcm, tmp.name, sample_rate=48000)
-                    tmp.seek(0); wav_bytes = tmp.read() if ok else b""
-                if not wav_bytes:
-                    st.warning("No audio captured. Please try again.")
-                else:
-                    with st.spinner("Transcribing recording..."):
-                        text = transcribe_audio_bytes(wav_bytes)
-                    if text:
-                        st.success(f"Transcribed: {text}")
-                        with st.spinner("Thinking..."): reply = get_ai_reply(text)
-                        with st.spinner("Responding..."):
-                            stream_tts_response(reply)
-                        st.rerun()
+                st.warning("🤔 Could not understand the speech. Try again clearly.")
+
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
 
