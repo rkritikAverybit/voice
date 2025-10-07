@@ -424,7 +424,7 @@ with col2:
 
             # 🧘 Reset audio path AFTER rerun-trigger to stop looping playback
             current_audio = st.session_state.get("audio_response_path")
-            st.rerun()
+            #st.rerun()
             st.session_state.audio_response_path = None
 
 
