@@ -327,7 +327,7 @@ def record_browser_audio_ui():
         st.error(f"🎤 Mic setup issue: {e}")
         ctx = None
     if (ctx is None) or (ctx and not ctx.state.playing):
-        st.button("🔁 Restart Recorder", on_click=lambda: st.experimental_rerun())
+        st.button("🔁 Restart Recorder", on_click=lambda: st.rerun())
     if ctx and ctx.state.playing:
         frames = ctx.audio_receiver.get_frames(timeout=1)
         for f in frames:
@@ -364,7 +364,7 @@ def record_browser_audio_ui():
                         with st.spinner("Responding..."):
                             paths = stream_tts_response(reply)
                             if paths: st.session_state.audio_response_path = paths[-1]
-                        st.experimental_rerun()
+                        st.rerun()
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
 
@@ -384,7 +384,7 @@ with st.sidebar:
         for t in st.session_state.user_profile["topics_discussed"][:5]: st.write(f"• {t.capitalize()}")
     st.markdown("---")
     if st.button("Reset Conversation", use_container_width=True):
-        st.session_state.messages = []; st.experimental_rerun()
+        st.session_state.messages = []; st.rerun()
     st.caption("Powered by OpenRouter API")
 
 col1, col2 = st.columns([2,1])
@@ -402,7 +402,7 @@ with col1:
         with st.spinner("Preparing voice response..."):
             paths = stream_tts_response(reply)
             if paths: st.session_state.audio_response_path = paths[-1]
-        st.experimental_rerun()
+        st.rerun()
 
 with col2:
     st.markdown("### Voice Controls (Cloud-friendly)")
@@ -420,7 +420,7 @@ with col2:
                 with st.spinner("Responding..."):
                     paths = stream_tts_response(reply)
                     if paths: st.session_state.audio_response_path = paths[-1]
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.info("This audio has already been processed. Upload a new one to continue.")
 
