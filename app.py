@@ -418,7 +418,7 @@ with col2:
                 reply = get_ai_reply(text)
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
-            st.rerun()
+            #st.rerun()
 
 cleanup_old_audio()
 
