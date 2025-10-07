@@ -433,9 +433,9 @@ st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness
 
 with st.sidebar:
     st.markdown("## Settings")
-    st.markdown("### Voice Selection")
-    selected_voice = st.selectbox("Choose AI voice:", options=list(VOICE_OPTIONS.keys()), index=0)
-    st.session_state.user_profile["voice_preference"] = VOICE_OPTIONS[selected_voice]
+    #st.markdown("### Voice Selection")
+    #selected_voice = st.selectbox("Choose AI voice:", options=list(VOICE_OPTIONS.keys()), index=0)
+    #st.session_state.user_profile["voice_preference"] = VOICE_OPTIONS[selected_voice]
     st.markdown("### Response Length")
     rl = st.radio("Style:", options=["short","medium","long"], index=1, horizontal=True)
     st.session_state.user_profile["response_length"] = rl
