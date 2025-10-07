@@ -436,5 +436,8 @@ with col2:
 
 
 cleanup_old_audio()
+if st.session_state.get("play_once"):
+    st.session_state.audio_response_path = None
+    st.session_state["play_once"] = False
 
 st.markdown("<hr/><div style='text-align:center; color:#777; padding: 20px;'><p>Each breath is a new beginning</p></div>", unsafe_allow_html=True)
