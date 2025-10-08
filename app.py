@@ -425,7 +425,7 @@ def record_voice_in_chat():
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
 
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.warning("🤔 Could not understand your voice clearly. Try again with a longer or clearer clip.")
 
