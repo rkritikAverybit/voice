@@ -342,27 +342,22 @@ def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
 
 
 def transcribe_audio_bytes(audio_bytes: bytes) -> Optional[str]:
-    """Try Google STT first, fallback to Whisper via OpenRouter if needed"""
+    """Transcribe mic input using Google STT with optional Whisper fallback"""
     if not audio_bytes:
         return None
 
     try:
-        # Convert raw audio to valid WAV
         wav_data = convert_audio_to_wav(audio_bytes)
         if len(wav_data) < 4000:
             st.warning("🎙️ The recording seems too short. Try speaking for at least 2 seconds.")
             return None
 
-        # Save to temporary file
+        # Save WAV temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(wav_data)
             tmp_path = tmp.name
 
-        # --- Google Speech Recognition ---
         r = sr.Recognizer()
-        r.energy_threshold = 100
-        r.dynamic_energy_threshold = True
-
         with sr.AudioFile(tmp_path) as src:
             audio = r.record(src)
 
@@ -372,46 +367,32 @@ def transcribe_audio_bytes(audio_bytes: bytes) -> Optional[str]:
             if text.strip():
                 return text.strip()
         except sr.UnknownValueError:
-            st.info("🤔 Google STT couldn’t understand, trying Whisper instead...")
+            st.info("🤔 Google could not understand the audio.")
         except sr.RequestError:
-            st.info("🌐 Google STT request issue, switching to Whisper...")
-
-        # --- Fallback: Whisper via OpenRouter ---
-        try:
-            with open(tmp_path, "rb") as f:
-                audio_bytes = f.read()
-
-            resp = openai_client.audio.transcriptions.create(
-                model="openai/whisper-large-v3-turbo",
-                file=("speech.wav", audio_bytes, "audio/wav"),
-            )
-            os.unlink(tmp_path)
-            if resp and hasattr(resp, "text"):
-                return resp.text.strip()
-        except Exception as e:
-            st.warning(f"⚠️ Whisper fallback failed: {e}")
-            return None
+            st.warning("🌐 Google STT network issue.")
 
     except Exception as e:
         st.error(f"⚠️ Transcription failed: {e}")
-        return None
-
     return None
 
 
 def record_voice_in_chat():
-    """Streamlit Cloud safe mic recording section (st_audiorec-based)"""
+    """🎙️ Mic recorder + AI reply + voice output (loop safe)"""
     st.markdown("#### 🎙️ Speak to Mindful")
     st.caption("Press the mic icon, record your message for 2–5 seconds, then stop to process it.")
-    st.caption("If no audio is detected, ensure mic permissions are enabled in your browser.")
+    st.caption("If no audio is detected, ensure mic permissions are allowed in your browser.")
 
-    # 🎙️ Record voice from browser
+    # 🔁 State flag to prevent repeat execution
+    if "mic_processed" not in st.session_state:
+        st.session_state.mic_processed = False
+
+    # 🎧 Record audio using browser mic
     audio_data = st_audiorec()
 
-    # 🧠 If audio captured, start transcription and response
-    if audio_data:
+    # 🧠 Process only if new recording exists & not processed yet
+    if audio_data and not st.session_state.mic_processed:
+        st.session_state.mic_processed = True  # prevent looping
         st.success("✅ Audio recorded successfully!")
-        st.write(f"📦 Audio size: {len(audio_data)} bytes")
 
         with st.spinner("🪄 Transcribing your voice..."):
             text = transcribe_audio_bytes(audio_data)
@@ -425,9 +406,14 @@ def record_voice_in_chat():
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
 
+            # 🧼 Reset before re-run
+            st.session_state.mic_processed = False
             st.rerun()
+
         else:
-            st.warning("🤔 Could not understand your voice clearly. Try again with a longer or clearer clip.")
+            st.warning("🤔 Could not understand your voice clearly. Try again.")
+            st.session_state.mic_processed = False
+
 
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
