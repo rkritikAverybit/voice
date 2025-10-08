@@ -4,6 +4,8 @@ import os, io, base64, tempfile, time, urllib.request, re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+load_dotenv()  # 🔑 Load environment variables at startup
 
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
@@ -137,12 +139,26 @@ def autoplay_audio_html(file_path: str) -> str:
 
 @st.cache_resource
 def init_openai_client():
+    from dotenv import load_dotenv
+
+    # Load .env file
+    if os.path.exists(".env"):
+        load_dotenv(".env")
+
+    # Try to read the key
     api_key = os.getenv("OPENROUTER_API_KEY")
+
     if not api_key:
-        st.error("Missing OPENROUTER_API_KEY in Secrets."); st.stop()
+        st.error("❌ OPENROUTER_API_KEY missing. Please check your .env file.")
+        st.stop()
+
     if OpenAI is None:
-        st.error("openai package missing."); st.stop()
+        st.error("⚠️ The 'openai' package is missing.")
+        st.stop()
+
+    
     return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+
 openai_client = init_openai_client()
 
 def get_system_prompt(intent="general", user_profile=None):
@@ -308,134 +324,119 @@ def stream_tts_response(text: str, voice: Optional[str] = None):
     return [str(final_path)]
 
 
-def record_browser_audio_ui():
-    st.markdown("#### 🎙️ Browser Voice Recorder")
-    st.caption(
-        "Click **Start** to record, **Stop** when done, then press **Transcribe**.\n"
-        "If the mic doesn’t start, allow access and wait a few seconds."
-    )
 
-    # --- Attempt to start WebRTC safely ---
+from st_audiorec import st_audiorec
+from pydub import AudioSegment
+import io, tempfile, os
+
+def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
+    """Convert raw audio blob (from st_audiorec) into WAV bytes"""
     try:
-        # ctx = webrtc_streamer(
-        #     key="webrtc-audio",
-        #     mode=WebRtcMode.SENDONLY,
-        #     audio_receiver_size=1024,
-        #     media_stream_constraints={"audio": True, "video": False},
-        # )
-        ctx = webrtc_streamer(
-            key="webrtc-audio",
-            mode=WebRtcMode.SENDONLY,
-            audio_receiver_size=1024,
-            media_stream_constraints={"audio": True, "video": False},
-            rtc_configuration={
-                "iceServers": [
-                    {"urls": ["stun:stun.l.google.com:19302"]},
-                    {
-                        "urls": [
-                            "turn:openrelay.metered.ca:80",
-                            "turn:openrelay.metered.ca:443",
-                            "turn:openrelay.metered.ca:443?transport=tcp"
-                        ],
-                        "username": "openrelayproject",
-                        "credential": "openrelayproject"
-                    }
-                ]
-            },
-        )
-
-
-    except AttributeError:
-        # Common Cloud bug: _polling_thread is None
-        st.warning("⚠️ Browser mic stream stopped unexpectedly. Restarting mic...")
-        ctx = None
+        sound = AudioSegment.from_file(io.BytesIO(audio_bytes))
+        buf = io.BytesIO()
+        sound.export(buf, format="wav")
+        return buf.getvalue()
     except Exception as e:
-        st.error(f"🎤 Mic setup issue: {e}")
-        ctx = None
+        st.error(f"🎧 Audio conversion failed: {e}")
+        return b""
 
-    # --- If context failed, show restart ---
-    if ctx is None:
-        if st.button("🔁 Restart Recorder", use_container_width=True):
-            st.experimental_rerun()
-        return
 
-    # --- If WebRTC still initializing ---
-    if not hasattr(ctx, "state") or ctx.state.playing is False:
-        st.info("🎧 Waiting for microphone to connect... (Allow browser permission)")
-        return
+def transcribe_audio_bytes(audio_bytes: bytes) -> Optional[str]:
+    """Try Google STT first, fallback to Whisper via OpenRouter if needed"""
+    if not audio_bytes:
+        return None
 
-    # --- Safe audio capture ---
-    frames_collected = 0
-    new_frames = []
     try:
-        new_frames = ctx.audio_receiver.get_frames(timeout=1)
-    except Exception:
-        pass
+        # Convert raw audio to valid WAV
+        wav_data = convert_audio_to_wav(audio_bytes)
+        if len(wav_data) < 4000:
+            st.warning("🎙️ The recording seems too short. Try speaking for at least 2 seconds.")
+            return None
 
-    if new_frames:
-        for f in new_frames:
-            try:
-                arr = f.to_ndarray()
-                if arr.ndim == 2:
-                    arr = arr.mean(axis=0)
-                if arr.dtype in (np.float32, np.float64):
-                    arr = np.clip(arr, -1.0, 1.0)
-                    arr = (arr * 32767).astype(np.int16)
-                st.session_state.webrtc_frames.append(arr.tobytes())
-                frames_collected += 1
-            except Exception:
-                continue
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(wav_data)
+            tmp_path = tmp.name
 
-    # --- Controls ---
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🧹 Clear Buffer", use_container_width=True):
-            st.session_state.webrtc_frames = []
-            st.success("Recording buffer cleared.")
-    with c2:
-        if st.button("📝 Transcribe", use_container_width=True):
-            frames = st.session_state.webrtc_frames
-            if len(frames) < 10:
-                st.warning("🎙️ Not enough audio captured. Try recording a bit longer.")
-                return
+        # --- Google Speech Recognition ---
+        r = sr.Recognizer()
+        r.energy_threshold = 100
+        r.dynamic_energy_threshold = True
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                try:
-                    ok = save_pcm_to_wav(b"".join(frames), tmp.name, 48000)
-                    tmp.seek(0)
-                    wav_bytes = tmp.read() if ok else b""
-                except Exception as e:
-                    st.error(f"Could not save audio: {e}")
-                    return
+        with sr.AudioFile(tmp_path) as src:
+            audio = r.record(src)
 
-            if not wav_bytes:
-                st.warning("⚠️ No valid audio captured. Please try again.")
-                return
+        try:
+            text = r.recognize_google(audio, language="en-US")
+            os.unlink(tmp_path)
+            if text.strip():
+                return text.strip()
+        except sr.UnknownValueError:
+            st.info("🤔 Google STT couldn’t understand, trying Whisper instead...")
+        except sr.RequestError:
+            st.info("🌐 Google STT request issue, switching to Whisper...")
 
-            with st.spinner("🪄 Transcribing your voice..."):
-                text = transcribe_audio_bytes(wav_bytes)
+        # --- Fallback: Whisper via OpenRouter ---
+        try:
+            with open(tmp_path, "rb") as f:
+                audio_bytes = f.read()
 
-            if text:
-                st.success(f"Transcribed: {text}")
-                with st.spinner("💬 Thinking..."):
-                    reply = get_ai_reply(text)
-                with st.spinner("🎤 Responding..."):
-                    stream_tts_response(reply)
-                st.experimental_rerun()
-            else:
-                st.warning("🤔 Could not understand. Try again clearly or speak louder.")
+            resp = openai_client.audio.transcriptions.create(
+                model="openai/whisper-large-v3-turbo",
+                file=("speech.wav", audio_bytes, "audio/wav"),
+            )
+            os.unlink(tmp_path)
+            if resp and hasattr(resp, "text"):
+                return resp.text.strip()
+        except Exception as e:
+            st.warning(f"⚠️ Whisper fallback failed: {e}")
+            return None
 
-    if frames_collected == 0:
-        st.caption("🎧 Waiting for mic input... Speak when ready.")
+    except Exception as e:
+        st.error(f"⚠️ Transcription failed: {e}")
+        return None
+
+    return None
+
+
+def record_voice_in_chat():
+    """Streamlit Cloud safe mic recording section (st_audiorec-based)"""
+    st.markdown("#### 🎙️ Speak to Mindful")
+    st.caption("Press the mic icon, record your message for 2–5 seconds, then stop to process it.")
+    st.caption("If no audio is detected, ensure mic permissions are enabled in your browser.")
+
+    # 🎙️ Record voice from browser
+    audio_data = st_audiorec()
+
+    # 🧠 If audio captured, start transcription and response
+    if audio_data:
+        st.success("✅ Audio recorded successfully!")
+        st.write(f"📦 Audio size: {len(audio_data)} bytes")
+
+        with st.spinner("🪄 Transcribing your voice..."):
+            text = transcribe_audio_bytes(audio_data)
+
+        if text:
+            st.success(f"🗣️ You said: {text}")
+
+            with st.spinner("💬 Thinking..."):
+                reply = get_ai_reply(text)
+
+            with st.spinner("🎤 Responding..."):
+                stream_tts_response(reply)
+
+            st.experimental_rerun()
+        else:
+            st.warning("🤔 Could not understand your voice clearly. Try again with a longer or clearer clip.")
 
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("## Settings")
-    #st.markdown("### Voice Selection")
-    #selected_voice = st.selectbox("Choose AI voice:", options=list(VOICE_OPTIONS.keys()), index=0)
-    #st.session_state.user_profile["voice_preference"] = VOICE_OPTIONS[selected_voice]
+    st.markdown("### Voice Selection")
+    selected_voice = st.selectbox("Choose AI voice:", options=list(VOICE_OPTIONS.keys()), index=0)
+    st.session_state.user_profile["voice_preference"] = VOICE_OPTIONS[selected_voice]
     st.markdown("### Response Length")
     rl = st.radio("Style:", options=["short","medium","long"], index=1, horizontal=True)
     st.session_state.user_profile["response_length"] = rl
@@ -479,37 +480,40 @@ with col1:
         st.rerun()
 
 with col2:
-    st.markdown("### Voice Controls (Cloud-friendly)")
-    record_browser_audio_ui()
-    st.markdown("---"); st.markdown("**Or upload a voice note**")
+    record_voice_in_chat()
+    st.markdown("### 🎵 Or upload a voice note below")
+
+
+    # --- Upload voice file (Cloud friendly) ---
     uploaded_audio = st.file_uploader(
-        "Upload audio (wav/mp3/m4a/flac)",
+        "🎵 Upload a voice note (wav/mp3/m4a/flac)",
         type=["wav", "mp3", "m4a", "flac"],
         label_visibility="collapsed"
     )
-
-    if uploaded_audio and not st.session_state.upload_processed:
-        # 🔐 Lock so this block runs only once per upload
-        st.session_state.upload_processed = True
-
+    
+    # Process upload once
+    if uploaded_audio and not st.session_state.get("upload_processed", False):
+        st.session_state.upload_processed = True  # lock for one run
+    
         with st.spinner("🎧 Transcribing your voice note..."):
             text = audio_upload_to_text(uploaded_audio)
-
+    
         if text:
             st.success(f"Transcribed: {text}")
+    
             with st.spinner("💬 Thinking..."):
                 reply = get_ai_reply(text)
+    
             with st.spinner("🎤 Responding..."):
                 stream_tts_response(reply)
-
-            # Trigger a single rerun to display message + audio
+    
             st.rerun()
-
-    elif uploaded_audio and st.session_state.upload_processed:
+    
+    elif uploaded_audio and st.session_state.get("upload_processed", False):
         st.info("✅ Voice note processed successfully. Upload a new file to continue.")
     else:
-        # Reset lock when no file is selected
         st.session_state.upload_processed = False
+
 
 
 
