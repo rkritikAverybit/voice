@@ -327,10 +327,9 @@ def stream_tts_response(text: str, voice: Optional[str] = None):
 
 from st_audiorec import st_audiorec
 from pydub import AudioSegment
-import io, tempfile, os
+import io, tempfile, os, hashlib
 
 def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
-    """Convert raw audio blob (from st_audiorec) into WAV bytes"""
     try:
         sound = AudioSegment.from_file(io.BytesIO(audio_bytes))
         buf = io.BytesIO()
@@ -342,17 +341,14 @@ def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
 
 
 def transcribe_audio_bytes(audio_bytes: bytes) -> Optional[str]:
-    """Transcribe mic input using Google STT with optional Whisper fallback"""
     if not audio_bytes:
         return None
-
     try:
         wav_data = convert_audio_to_wav(audio_bytes)
         if len(wav_data) < 4000:
-            st.warning("🎙️ The recording seems too short. Try speaking for at least 2 seconds.")
+            st.warning("🎙️ Recording too short. Try speaking for at least 2 seconds.")
             return None
 
-        # Save WAV temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             tmp.write(wav_data)
             tmp_path = tmp.name
@@ -361,59 +357,59 @@ def transcribe_audio_bytes(audio_bytes: bytes) -> Optional[str]:
         with sr.AudioFile(tmp_path) as src:
             audio = r.record(src)
 
+        text = None
         try:
             text = r.recognize_google(audio, language="en-US")
-            os.unlink(tmp_path)
-            if text.strip():
-                return text.strip()
         except sr.UnknownValueError:
-            st.info("🤔 Google could not understand the audio.")
+            st.warning("🤔 Could not understand. Try again clearly.")
         except sr.RequestError:
-            st.warning("🌐 Google STT network issue.")
-
+            st.warning("🌐 STT service issue. Try again.")
+        os.unlink(tmp_path)
+        return text.strip() if text else None
     except Exception as e:
         st.error(f"⚠️ Transcription failed: {e}")
-    return None
+        return None
 
 
 def record_voice_in_chat():
-    """🎙️ Mic recorder + AI reply + voice output (loop safe)"""
+    """Mic recorder + AI + TTS with audio deduplication fix"""
     st.markdown("#### 🎙️ Speak to Mindful")
     st.caption("Press the mic icon, record your message for 2–5 seconds, then stop to process it.")
-    st.caption("If no audio is detected, ensure mic permissions are allowed in your browser.")
+    st.caption("If no audio is detected, check mic permissions in your browser.")
 
-    # 🔁 State flag to prevent repeat execution
-    if "mic_processed" not in st.session_state:
-        st.session_state.mic_processed = False
+    # ✅ Initialize session vars
+    if "last_audio_hash" not in st.session_state:
+        st.session_state.last_audio_hash = None
 
-    # 🎧 Record audio using browser mic
     audio_data = st_audiorec()
 
-    # 🧠 Process only if new recording exists & not processed yet
-    if audio_data and not st.session_state.mic_processed:
-        st.session_state.mic_processed = True  # prevent looping
-        st.success("✅ Audio recorded successfully!")
+    if audio_data:
+        # 🧩 Generate hash of current recording
+        current_hash = hashlib.md5(audio_data).hexdigest()
 
-        with st.spinner("🪄 Transcribing your voice..."):
-            text = transcribe_audio_bytes(audio_data)
+        # 🧠 Process only if this audio is new
+        if current_hash != st.session_state.last_audio_hash:
+            st.session_state.last_audio_hash = current_hash
+            st.success("✅ New audio recorded!")
 
-        if text:
-            st.success(f"🗣️ You said: {text}")
+            with st.spinner("🪄 Transcribing your voice..."):
+                text = transcribe_audio_bytes(audio_data)
 
-            with st.spinner("💬 Thinking..."):
-                reply = get_ai_reply(text)
+            if text:
+                st.success(f"🗣️ You said: {text}")
 
-            with st.spinner("🎤 Responding..."):
-                stream_tts_response(reply)
+                with st.spinner("💬 Thinking..."):
+                    reply = get_ai_reply(text)
 
-            # 🧼 Reset before re-run
-            st.session_state.mic_processed = False
-            st.rerun()
+                with st.spinner("🎤 Responding..."):
+                    stream_tts_response(reply)
 
+                st.rerun()  # rerun safely once
+            else:
+                st.warning("🤔 Could not understand your voice clearly. Try again.")
         else:
-            st.warning("🤔 Could not understand your voice clearly. Try again.")
-            st.session_state.mic_processed = False
-
+            # 🚫 Same audio detected — skip
+            st.info("🔁 Waiting for a new recording...")
 
 
 st.markdown("<div style='text-align:center; padding: 20px;'><h1>Mindful Wellness AI Assistant</h1><p>Streamlit Cloud–ready: browser mic + file upload</p></div>", unsafe_allow_html=True)
