@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: mindful-app
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: REALTIME_MODEL
+        value: gpt-4o-realtime-preview-2024-12-17
+    healthCheckPath: /api/health
