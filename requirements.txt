@@ -1,25 +1,6 @@
-streamlit>=1.37.0
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+websockets==12.0
+python-dotenv==1.0.0
 openai>=1.40.0
-
-# Browser mic recording (optional)
-streamlit-webrtc==0.47.0
-av>=10.0.0
-
-# STT (speech to text)
-SpeechRecognition>=3.10.0
-
-# TTS (text to speech)
-edge-tts>=6.1.0
-gTTS>=2.5.0
-
-# Audio utils
-pydub>=0.25.1
-soundfile>=0.12.1
-numpy>=1.26.0
-
-# Async helper
-nest_asyncio>=1.6.0
-
-# Utilities
-requests>=2.31.0
-python-dotenv>=1.0.0
+pydantic==2.5.3
