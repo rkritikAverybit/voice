@@ -656,26 +656,25 @@ console.log('📍 WebSocket URL:', CONFIG.WS_BASE_URL);
         }
 
 
-// ==================== AUDIO HANDLER - BROWSER-COMPATIBLE VERSION ====================
+// ==================== AUDIO HANDLER - DEBUGGED VERSION ====================
 class AudioHandler {
     constructor() {
         this.audioContext = null;
         this.processor = null;
         this.stream = null;
         this.isRecording = false;
+        this.chunkCount = 0;
     }
 
     async startRecording(onDataAvailable) {
         try {
             // Request microphone WITHOUT specifying sampleRate
-            // Let browser use its default (usually 48kHz)
             this.stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true
-                    // NO sampleRate specified!
                 } 
             });
 
@@ -689,48 +688,81 @@ class AudioHandler {
             
             const source = this.audioContext.createMediaStreamSource(this.stream);
             
-            // Create ScriptProcessor
-            const bufferSize = 4096;
+            // Create ScriptProcessor with larger buffer
+            const bufferSize = 16384; // Increased for better compatibility
             this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
             
-            // Resampler state
-            let resampleBuffer = [];
+            // Resampling setup
             const targetSampleRate = 24000;
             const resampleRatio = nativeSampleRate / targetSampleRate;
             
             this.processor.onaudioprocess = (audioProcessingEvent) => {
-                if (!this.isRecording || !onDataAvailable) return;
-                
-                // Get input data at native sample rate
-                const inputBuffer = audioProcessingEvent.inputBuffer;
-                const inputData = inputBuffer.getChannelData(0);
-                
-                // Simple decimation resampling
-                const resampledLength = Math.floor(inputData.length / resampleRatio);
-                const resampled = new Float32Array(resampledLength);
-                
-                for (let i = 0; i < resampledLength; i++) {
-                    const srcIndex = Math.floor(i * resampleRatio);
-                    resampled[i] = inputData[srcIndex];
+                if (!this.isRecording || !onDataAvailable) {
+                    return;
                 }
                 
-                // Convert to PCM16
-                const pcm16 = new Int16Array(resampled.length);
-                for (let i = 0; i < resampled.length; i++) {
-                    const s = Math.max(-1, Math.min(1, resampled[i]));
-                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                this.chunkCount++;
+                
+                // Log every 10th chunk to avoid console spam
+                if (this.chunkCount % 10 === 0) {
+                    console.log(`🎤 Processing audio chunk #${this.chunkCount}`);
                 }
                 
-                // Convert to base64
-                const uint8 = new Uint8Array(pcm16.buffer);
-                let binary = '';
-                for (let i = 0; i < uint8.byteLength; i++) {
-                    binary += String.fromCharCode(uint8[i]);
+                try {
+                    // Get input data at native sample rate
+                    const inputBuffer = audioProcessingEvent.inputBuffer;
+                    const inputData = inputBuffer.getChannelData(0);
+                    
+                    // Check if input has audio
+                    let hasAudio = false;
+                    for (let i = 0; i < inputData.length; i++) {
+                        if (Math.abs(inputData[i]) > 0.01) {
+                            hasAudio = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasAudio) {
+                        // Skip silent chunks
+                        return;
+                    }
+                    
+                    // Resample to 24kHz
+                    const resampledLength = Math.floor(inputData.length / resampleRatio);
+                    const resampled = new Float32Array(resampledLength);
+                    
+                    for (let i = 0; i < resampledLength; i++) {
+                        const srcIndex = Math.floor(i * resampleRatio);
+                        resampled[i] = inputData[srcIndex];
+                    }
+                    
+                    // Convert to PCM16
+                    const pcm16 = new Int16Array(resampled.length);
+                    for (let i = 0; i < resampled.length; i++) {
+                        const s = Math.max(-1, Math.min(1, resampled[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    
+                    // Convert to base64
+                    const uint8 = new Uint8Array(pcm16.buffer);
+                    let binary = '';
+                    const len = uint8.byteLength;
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(uint8[i]);
+                    }
+                    const base64 = btoa(binary);
+                    
+                    // Log every 10th send
+                    if (this.chunkCount % 10 === 0) {
+                        console.log(`📤 Sending ${base64.length} bytes (chunk #${this.chunkCount})`);
+                    }
+                    
+                    // Send to callback
+                    onDataAvailable(base64);
+                    
+                } catch (error) {
+                    console.error('❌ Audio processing error:', error);
                 }
-                const base64 = btoa(binary);
-                
-                // Send to callback
-                onDataAvailable(base64);
             };
             
             // Connect nodes
@@ -738,8 +770,11 @@ class AudioHandler {
             this.processor.connect(this.audioContext.destination);
             
             this.isRecording = true;
+            this.chunkCount = 0;
+            
             console.log(`🎤 Recording started: ${nativeSampleRate}Hz → 24kHz mono PCM16`);
-            showNotification('Recording started', 'success');
+            console.log(`📊 Buffer size: ${bufferSize} samples`);
+            showNotification('Recording started - Speak now!', 'success');
             return true;
 
         } catch (error) {
@@ -777,11 +812,13 @@ class AudioHandler {
             this.audioContext = null;
         }
 
-        console.log('🎤 Recording stopped');
+        console.log(`🎤 Recording stopped (processed ${this.chunkCount} chunks)`);
     }
 
     playAudio(hexData) {
         try {
+            console.log(`🔊 Playing audio response (${hexData.length} bytes)`);
+            
             // Convert hex to bytes
             const bytes = new Uint8Array(
                 hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
@@ -810,17 +847,20 @@ class AudioHandler {
             source.connect(audioContext.destination);
             source.start();
             
+            console.log('✅ Audio playback started');
+            
             // Cleanup
             source.onended = () => {
                 audioContext.close();
+                console.log('✅ Audio playback finished');
             };
 
-            console.log('🔊 Playing audio response');
         } catch (error) {
             console.error('❌ Playback error:', error);
         }
     }
 }
+
 
 
         // ==================== WEBSOCKET CLIENT ====================
@@ -1127,46 +1167,61 @@ class AudioHandler {
 
             async startVoiceSession() {
                 try {
+                    console.log('🎙️ Starting voice session...');
+                    
                     this.uiController.showStatus('connecting', 'Connecting...');
-
+                
                     // Connect WebSocket
                     this.wsClient = new WebSocketClient(this.sessionId);
+                    console.log('📡 Session ID:', this.sessionId);
                     
                     // Setup handlers
                     this.wsClient.onMessage = (data) => this.handleWebSocketMessage(data);
                     this.wsClient.onClose = () => this.handleWebSocketClose();
                     this.wsClient.onError = (error) => this.handleWebSocketError(error);
-
+                
                     await this.wsClient.connect();
-
+                    console.log('✅ WebSocket connected');
+                
                     // Start audio recording
+                    console.log('🎤 Starting audio recording...');
                     const success = await this.audioHandler.startRecording((audioData) => {
-                        if (this.wsClient) {
+                        // ✅ ADD DEBUG LOG
+                        if (this.audioHandler.chunkCount % 10 === 0) {
+                            console.log('📡 Sending audio to WebSocket');
+                        }
+                        
+                        if (this.wsClient && this.wsClient.ws && this.wsClient.ws.readyState === WebSocket.OPEN) {
                             this.wsClient.sendAudio(audioData);
+                        } else {
+                            console.warn('⚠️ WebSocket not ready, skipping chunk');
                         }
                     });
 
-                    if (!success) {
-                        throw new Error('Failed to start recording');
-                    }
+        if (!success) {
+            throw new Error('Failed to start recording');
+        }
+        
+        console.log('✅ Audio recording started successfully');
 
-                    // Update UI
-                    this.isRecording = true;
-                    this.uiController.showStatus('connected', 'Connected • Listening');
-                    this.uiController.setVoiceActive(true);
-                    
-                    document.getElementById('startVoiceBtn').disabled = true;
-                    document.getElementById('stopVoiceBtn').disabled = false;
+        // Update UI
+        this.isRecording = true;
+        this.uiController.showStatus('connected', 'Connected • Listening');
+        this.uiController.setVoiceActive(true);
+        
+        document.getElementById('startVoiceBtn').disabled = true;
+        document.getElementById('stopVoiceBtn').disabled = false;
 
-                    showNotification('Voice session started', 'success');
-                    console.log('✅ Voice session started');
+        showNotification('Voice session started - Speak now!', 'success');
+        console.log('✅ Voice session fully initialized');
 
-                } catch (error) {
-                    console.error('❌ Failed to start voice session:', error);
-                    showNotification('Failed to start voice session', 'error');
-                    this.stopVoiceSession();
-                }
-            }
+    } catch (error) {
+        console.error('❌ Failed to start voice session:', error);
+        showNotification('Failed to start voice session: ' + error.message, 'error');
+        this.stopVoiceSession();
+    }
+}
+
 
             stopVoiceSession() {
                 if (this.wsClient) {
