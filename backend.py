@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict
 
 import websockets
 from dotenv import load_dotenv
@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from openai import AsyncOpenAI  # ✅ updated import for new OpenAI SDK
 
 # Load environment variables
 load_dotenv()
@@ -110,7 +111,7 @@ class OpenAIRealtimeClient:
             self.running = True
             asyncio.create_task(self._receive_loop())
             await self._send_message({"type": "session.create"})
-            logger.info(f"✅ Connected to OpenAI")
+            logger.info("✅ Connected to OpenAI")
         except Exception as e:
             logger.error(f"❌ Connection failed: {e}")
             await self.on_error(str(e))
@@ -183,20 +184,28 @@ class OpenAIRealtimeClient:
 # ==================== OPENAI SERVICE ====================
 
 class OpenAIService:
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
+
     async def create_realtime_client(self, session_id: str, on_audio_response: Callable, on_transcript: Callable, on_error: Callable):
         client = OpenAIRealtimeClient(session_id, on_audio_response, on_transcript, on_error)
         await client.connect()
         return client
-    
+
     async def send_text_completion(self, message: str, context: str = "") -> str:
+        """Send text message to OpenAI and return response."""
         try:
-            import openai
-            client = openai.AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
             messages = [{"role": "system", "content": Config.SYSTEM_PROMPT}]
             if context:
                 messages.append({"role": "system", "content": f"Context: {context}"})
             messages.append({"role": "user", "content": message})
-            response = await client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=500, temperature=0.7)
+
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7
+            )
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"❌ Text completion error: {e}")
@@ -234,15 +243,12 @@ connection_manager = ConnectionManager()
 openai_service = OpenAIService()
 active_sessions: Dict[str, dict] = {}
 
-# ==================== SERVE STATIC FILES ====================
+# ==================== STATIC FILES ====================
 
-# Mount static directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Serve frontend at root
 @app.get("/")
 async def serve_frontend():
-    """Serve the frontend HTML"""
     return FileResponse("static/index.html")
 
 # ==================== API ROUTES ====================
@@ -262,15 +268,10 @@ async def voice_websocket(websocket: WebSocket, session_id: str):
     await connection_manager.connect(websocket, session_id)
     logger.info(f"✅ Client connected: {session_id}")
     
-    active_sessions[session_id] = {
-        "websocket": websocket,
-        "openai_client": None,
-        "connected_at": datetime.now()
-    }
+    active_sessions[session_id] = {"websocket": websocket, "openai_client": None, "connected_at": datetime.now()}
     
     try:
         await websocket.send_json({"type": "connected", "session_id": session_id})
-        
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
@@ -281,6 +282,8 @@ async def voice_websocket(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"❌ WebSocket error: {e}")
         await cleanup_session(session_id)
+
+# ==================== HANDLERS ====================
 
 async def handle_voice_message(session_id: str, message: dict, websocket: WebSocket):
     msg_type = message.get("type")
