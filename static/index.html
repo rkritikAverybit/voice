@@ -1208,22 +1208,34 @@ class AudioHandler {
 
 
             stopVoiceSession() {
-                if (this.wsClient) {
-                    this.wsClient.disconnect();
-                    this.wsClient = null;
-                }
+    if (!this.isRecording) return;
+    
+    console.log('⏹️ Stopping voice session...');
+    
+    // ✅ ADD: Wait a bit before stopping to let OpenAI respond
+    showNotification('Processing... Please wait', 'info');
+    
+    // Stop recording but keep connection open for response
+    this.audioHandler.stopRecording();
+    this.isRecording = false;
+    
+    // ✅ Wait 2 seconds for OpenAI response before closing connection
+    setTimeout(() => {
+        if (this.wsClient) {
+            this.wsClient.send({ type: 'stop_session' });
+            this.wsClient.disconnect();
+        }
+        
+        this.uiController.showStatus('disconnected', 'Disconnected');
+        this.uiController.setVoiceActive(false);
+        
+        document.getElementById('startVoiceBtn').disabled = false;
+        document.getElementById('stopVoiceBtn').disabled = true;
+        
+        console.log('⏹️ Voice session fully stopped');
+    }, 2000);  // ✅ 2 second delay
+}
 
-                this.audioHandler.stopRecording();
-                this.isRecording = false;
-
-                this.uiController.showStatus('disconnected', 'Disconnected');
-                this.uiController.setVoiceActive(false);
-
-                document.getElementById('startVoiceBtn').disabled = false;
-                document.getElementById('stopVoiceBtn').disabled = true;
-
-                console.log('⏹️ Voice session stopped');
-            }
 
             handleWebSocketMessage(data) {
                 switch (data.type) {
