@@ -657,16 +657,18 @@ console.log('📍 WebSocket URL:', CONFIG.WS_BASE_URL);
 
 
 // ==================== AUDIO HANDLER ====================
+
 class AudioHandler {
     constructor() {
-        this.mediaRecorder = null;
+        this.audioContext = null;
+        this.processor = null;
         this.stream = null;
         this.isRecording = false;
     }
 
     async startRecording(onDataAvailable) {
         try {
-            // Get microphone with 24kHz directly
+            // Request microphone
             this.stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
@@ -679,87 +681,50 @@ class AudioHandler {
 
             console.log('✅ Microphone access granted');
 
-            // Check supported MIME types
-            const mimeTypes = [
-                'audio/webm;codecs=pcm',
-                'audio/webm;codecs=opus',
-                'audio/webm',
-                'audio/ogg;codecs=opus'
-            ];
-            
-            let selectedMimeType = null;
-            for (const mimeType of mimeTypes) {
-                if (MediaRecorder.isTypeSupported(mimeType)) {
-                    selectedMimeType = mimeType;
-                    break;
-                }
-            }
-            
-            if (!selectedMimeType) {
-                throw new Error('No supported audio format found');
-            }
-            
-            console.log('🎤 Using format:', selectedMimeType);
-
-            // Create MediaRecorder
-            this.mediaRecorder = new MediaRecorder(this.stream, {
-                mimeType: selectedMimeType
+            // Create AudioContext with 24kHz
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 24000
             });
             
-            this.mediaRecorder.ondataavailable = async (event) => {
-                if (event.data.size > 0 && this.isRecording && onDataAvailable) {
-                    try {
-                        // Convert to ArrayBuffer
-                        const arrayBuffer = await event.data.arrayBuffer();
-                        
-                        // Create single AudioContext for processing
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                            sampleRate: 24000  // Match microphone
-                        });
-                        
-                        // Decode audio
-                        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                        
-                        // Get mono channel
-                        const channelData = audioBuffer.getChannelData(0);
-                        
-                        // Convert to PCM16
-                        const int16Array = new Int16Array(channelData.length);
-                        for (let i = 0; i < channelData.length; i++) {
-                            const s = Math.max(-1, Math.min(1, channelData[i]));
-                            int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                        }
-                        
-                        // Convert to base64
-                        const uint8Array = new Uint8Array(int16Array.buffer);
-                        let binary = '';
-                        const len = uint8Array.byteLength;
-                        for (let i = 0; i < len; i++) {
-                            binary += String.fromCharCode(uint8Array[i]);
-                        }
-                        const base64 = btoa(binary);
-                        
-                        // Send to callback
-                        onDataAvailable(base64);
-                        
-                        // Close AudioContext to prevent memory leak
-                        audioContext.close();
-                        
-                    } catch (error) {
-                        console.error('❌ Audio processing error:', error);
-                    }
-                }
-            };
-
-            this.mediaRecorder.onerror = (error) => {
-                console.error('❌ MediaRecorder error:', error);
-            };
-
-            // Start recording (100ms chunks)
-            this.mediaRecorder.start(100);
-            this.isRecording = true;
+            const source = this.audioContext.createMediaStreamSource(this.stream);
             
-            console.log('🎤 Recording started (24kHz mono PCM16)');
+            // Create ScriptProcessor for direct PCM access
+            this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+            
+            this.processor.onaudioprocess = (audioProcessingEvent) => {
+                if (!this.isRecording || !onDataAvailable) return;
+                
+                // Get input data (float32)
+                const inputBuffer = audioProcessingEvent.inputBuffer;
+                const inputData = inputBuffer.getChannelData(0);
+                
+                // Convert float32 to PCM16
+                const pcm16 = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    const s = Math.max(-1, Math.min(1, inputData[i]));
+                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+                
+                // Convert to Uint8Array
+                const uint8 = new Uint8Array(pcm16.buffer);
+                
+                // Convert to base64
+                let binary = '';
+                for (let i = 0; i < uint8.byteLength; i++) {
+                    binary += String.fromCharCode(uint8[i]);
+                }
+                const base64 = btoa(binary);
+                
+                // Send to callback
+                onDataAvailable(base64);
+            };
+            
+            // Connect nodes
+            source.connect(this.processor);
+            this.processor.connect(this.audioContext.destination);
+            
+            this.isRecording = true;
+            console.log('🎤 Recording started (24kHz mono PCM16 via ScriptProcessor)');
             showNotification('Recording started', 'success');
             return true;
 
@@ -767,7 +732,6 @@ class AudioHandler {
             console.error('❌ Recording error:', error);
             
             let errorMessage = 'Failed to start recording';
-            
             if (error.name === 'NotAllowedError') {
                 errorMessage = 'Microphone permission denied';
             } else if (error.name === 'NotFoundError') {
@@ -784,13 +748,19 @@ class AudioHandler {
     stopRecording() {
         this.isRecording = false;
         
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-            this.mediaRecorder.stop();
+        if (this.processor) {
+            this.processor.disconnect();
+            this.processor = null;
         }
 
         if (this.stream) {
             this.stream.getTracks().forEach(track => track.stop());
             this.stream = null;
+        }
+
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
         }
 
         console.log('🎤 Recording stopped');
@@ -808,14 +778,15 @@ class AudioHandler {
                 sampleRate: 24000
             });
             
-            // Create buffer
-            const audioBuffer = audioContext.createBuffer(1, bytes.length / 2, 24000);
+            // Create buffer (PCM16 is 2 bytes per sample)
+            const numSamples = bytes.length / 2;
+            const audioBuffer = audioContext.createBuffer(1, numSamples, 24000);
             const channelData = audioBuffer.getChannelData(0);
             
             // Convert PCM16 to float32
             const dataView = new DataView(bytes.buffer);
-            for (let i = 0; i < channelData.length; i++) {
-                const int16 = dataView.getInt16(i * 2, true);
+            for (let i = 0; i < numSamples; i++) {
+                const int16 = dataView.getInt16(i * 2, true); // little-endian
                 channelData[i] = int16 / (int16 < 0 ? 0x8000 : 0x7FFF);
             }
             
@@ -825,7 +796,7 @@ class AudioHandler {
             source.connect(audioContext.destination);
             source.start();
             
-            // Cleanup after playback
+            // Cleanup
             source.onended = () => {
                 audioContext.close();
             };
