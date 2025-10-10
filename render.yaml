@@ -1,7 +1,7 @@
 services:
   - type: web
     name: mindful-app
-    runtime: python
+    env: python             # ✅ This enables runtime.txt detection
     buildCommand: |
       export CARGO_HOME=/tmp/cargo
       pip install --upgrade pip wheel setuptools
