@@ -153,48 +153,94 @@ class OpenAIRealtimeClient:
             logger.error(f"❌ Receive error: {e}")
             await self.on_error(str(e))
     
+
     async def _handle_event(self, event: dict):
-        """Handle incoming events"""
+        """Handle incoming events from OpenAI"""
         event_type = event.get("type")
-        
+
+        # Log all events for debugging
+        logger.info(f"📥 OpenAI event: {event_type}")
+
         if event_type == "session.updated":
             self.session_ready.set()
             logger.info(f"✅ Session ready for {self.session_id}")
-            
+
+        elif event_type == "input_audio_buffer.speech_started":
+            logger.info(f"🗣️ Speech detected for {self.session_id}")
+
+        elif event_type == "input_audio_buffer.speech_stopped":
+            logger.info(f"🔇 Speech stopped for {self.session_id}")
+
+        elif event_type == "input_audio_buffer.committed":
+            logger.info(f"✅ Audio committed for {self.session_id}")
+
+        elif event_type == "response.created":
+            logger.info(f"🎯 Response created for {self.session_id}")
+
+        elif event_type == "response.output_item.added":
+            logger.info(f"📦 Output item added for {self.session_id}")
+
+        elif event_type == "response.content_part.added":
+            logger.info(f"📄 Content part added for {self.session_id}")
+
+        elif event_type == "response.audio_transcript.delta":
+            # Transcript chunk
+            delta = event.get("delta", "")
+            if delta:
+                logger.info(f"📝 Transcript delta: {delta}")
+
+        elif event_type == "response.audio_transcript.done":
+            # Full transcript
+            transcript = event.get("transcript", "")
+            if transcript:
+                logger.info(f"📝 Full transcript: {transcript}")
+                await self.on_transcript(transcript)
+
         elif event_type == "response.audio.delta":
+            # Audio response chunk
             delta_b64 = event.get("delta", "")
             if delta_b64:
                 audio_bytes = base64.b64decode(delta_b64)
                 self.audio_buffer.extend(audio_bytes)
-                
+
         elif event_type == "response.audio.done":
+            # Audio response complete
             if self.audio_buffer:
+                logger.info(f"🔊 Sending {len(self.audio_buffer)} bytes audio to {self.session_id}")
                 await self.on_audio_response(bytes(self.audio_buffer))
                 self.audio_buffer.clear()
-                
-        elif event_type == "conversation.item.created":
-            item = event.get("item", {})
-            if item.get("type") == "message":
-                for content in item.get("content", []):
-                    if content.get("type") == "audio":
-                        transcript = content.get("transcript", "")
-                        if transcript:
-                            await self.on_transcript(transcript)
-        
+
         elif event_type == "response.done":
+            logger.info(f"✅ Response complete for {self.session_id}")
             response = event.get("response", {})
-            for output in response.get("output", []):
-                if output.get("type") == "message":
-                    for content in output.get("content", []):
+
+            # Extract output
+            for output_item in response.get("output", []):
+                if output_item.get("type") == "message":
+                    for content in output_item.get("content", []):
                         if content.get("type") == "audio":
                             transcript = content.get("transcript", "")
                             if transcript:
+                                logger.info(f"📝 Response transcript: {transcript}")
                                 await self.on_transcript(transcript)
-        
+
         elif event_type == "error":
-            error_msg = event.get("error", {}).get("message", "Unknown error")
-            logger.error(f"❌ OpenAI error: {error_msg}")
-            await self.on_error(error_msg)
+            error_detail = event.get("error", {})
+            error_msg = error_detail.get("message", "Unknown error")
+            error_code = error_detail.get("code", "")
+            logger.error(f"❌ OpenAI error [{error_code}]: {error_msg}")
+            await self.on_error(f"{error_code}: {error_msg}")
+
+        elif event_type == "rate_limits.updated":
+            # Just log, don't process
+            pass
+
+        else:
+            # Log unknown events
+            logger.info(f"❓ Unhandled event: {event_type}")
+
+
+
     
     async def _configure_session(self):
         """Configure session settings"""
@@ -213,21 +259,28 @@ class OpenAIRealtimeClient:
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 700
-                }
+                    "silence_duration_ms": 500,  # ✅ Reduced for faster response
+                    "create_response": True  # ✅ Auto-create response after speech
+                },
+                "temperature": 0.8,
+                "max_response_output_tokens": 4096
             }
         })
         logger.info(f"⚙️ Session configured for {self.session_id}")
-    
+
+
     async def send_audio(self, audio_data: str):
         """Send audio data to OpenAI"""
         if not self.session_ready.is_set():
             await self.session_ready.wait()
-        
+
         await self._send_message({
             "type": "input_audio_buffer.append",
             "audio": audio_data
         })
+
+
+
     
     async def close(self):
         """Close connection"""
@@ -235,6 +288,23 @@ class OpenAIRealtimeClient:
         if self.ws:
             await self.ws.close()
             logger.info(f"🔌 OpenAI client closed for {self.session_id}")
+
+    async def commit_audio_buffer(self):
+        """Commit audio buffer and trigger response generation"""
+        await self._send_message({
+            "type": "input_audio_buffer.commit"
+        })
+        logger.info(f"✅ Audio buffer committed for {self.session_id}")
+
+        # Request response generation
+        await self._send_message({
+            "type": "response.create",
+            "response": {
+                "modalities": ["text", "audio"]
+            }
+        })
+        logger.info(f"🎯 Response generation triggered for {self.session_id}")
+
 
 # ==================== OPENAI SERVICE ====================
 
