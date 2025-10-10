@@ -183,17 +183,38 @@ class OpenAIRealtimeClient:
 
 # ==================== OPENAI SERVICE ====================
 
+
+from openai import AsyncOpenAI
+import httpx
+import logging
+
+logger = logging.getLogger(__name__)
+
 class OpenAIService:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
+        """
+        Force OpenAI to use a clean httpx.AsyncClient without 'proxies' argument
+        (avoids crash on Python 3.13 + httpx>=0.28)
+        """
+        # ✅ Manually create a simple HTTPX client
+        transport = httpx.AsyncHTTPTransport(retries=2)
+        http_client = httpx.AsyncClient(transport=transport, timeout=30.0, follow_redirects=True)
 
-    async def create_realtime_client(self, session_id: str, on_audio_response: Callable, on_transcript: Callable, on_error: Callable):
+        # ✅ Pass it safely into AsyncOpenAI
+        self.client = AsyncOpenAI(
+            api_key=Config.OPENAI_API_KEY,
+            http_client=http_client
+        )
+
+    async def create_realtime_client(self, session_id: str, on_audio_response, on_transcript, on_error):
         client = OpenAIRealtimeClient(session_id, on_audio_response, on_transcript, on_error)
         await client.connect()
         return client
 
     async def send_text_completion(self, message: str, context: str = "") -> str:
-        """Send text message to OpenAI and return response."""
+        """
+        Safe wrapper for text completions
+        """
         try:
             messages = [{"role": "system", "content": Config.SYSTEM_PROMPT}]
             if context:
@@ -206,10 +227,11 @@ class OpenAIService:
                 max_tokens=500,
                 temperature=0.7
             )
+
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"❌ Text completion error: {e}")
-            return "I'm having trouble connecting right now. Please try again in a moment."
+            return "I'm having trouble connecting right now. Please try again later."
 
 # ==================== CONNECTION MANAGER ====================
 
