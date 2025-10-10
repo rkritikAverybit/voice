@@ -363,18 +363,32 @@ async def voice_websocket(websocket: WebSocket, session_id: str):
 # ==================== HANDLERS ====================
 
 async def handle_voice_message(session_id: str, message: dict, websocket: WebSocket):
+    """Handle incoming voice messages"""
     msg_type = message.get("type")
+    logger.info(f"📩 {msg_type} from {session_id}")
     
     if msg_type == "start_session":
         await start_openai_session(session_id, websocket)
+        
     elif msg_type == "audio_data":
+        # ✅ ADD LOGGING
+        audio_data = message.get("data", "")
+        logger.info(f"🎤 Received audio: {len(audio_data)} bytes from {session_id}")
+        
         session = active_sessions.get(session_id)
         if session and session["openai_client"]:
-            await session["openai_client"].send_audio(message.get("data"))
+            await session["openai_client"].send_audio(audio_data)
+        else:
+            logger.warning(f"⚠️ No OpenAI client for {session_id}")
+        
     elif msg_type == "stop_session":
         await cleanup_session(session_id)
+        
     elif msg_type == "ping":
-        await websocket.send_json({"type": "pong"})
+        await websocket.send_json({
+            "type": "pong",
+            "timestamp": datetime.now().isoformat()
+        })
 
 async def start_openai_session(session_id: str, websocket: WebSocket):
     try:
