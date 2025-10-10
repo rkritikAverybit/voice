@@ -657,6 +657,7 @@ console.log('📍 WebSocket URL:', CONFIG.WS_BASE_URL);
 
 
 // ==================== AUDIO HANDLER - DEBUGGED VERSION ====================
+// ==================== AUDIO HANDLER - HIGH QUALITY VERSION ====================
 class AudioHandler {
     constructor() {
         this.audioContext = null;
@@ -664,97 +665,81 @@ class AudioHandler {
         this.stream = null;
         this.isRecording = false;
         this.chunkCount = 0;
+        this.resampler = null;
     }
 
     async startRecording(onDataAvailable) {
         try {
-            // Request microphone WITHOUT specifying sampleRate
+            // Request microphone
             this.stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: true,
+                    sampleRate: 48000  // Request 48kHz explicitly
                 } 
             });
 
             console.log('✅ Microphone access granted');
 
-            // Create AudioContext with default sample rate
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            // Create AudioContext at 24kHz directly
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 24000  // Force 24kHz output
+            });
             
-            const nativeSampleRate = this.audioContext.sampleRate;
-            console.log(`🎤 Native sample rate: ${nativeSampleRate}Hz`);
+            console.log(`🎤 AudioContext sample rate: ${this.audioContext.sampleRate}Hz`);
             
+            // Create source from microphone
             const source = this.audioContext.createMediaStreamSource(this.stream);
             
-            // Create ScriptProcessor with larger buffer
-            const bufferSize = 16384; // Increased for better compatibility
+            // Create ScriptProcessor
+            const bufferSize = 8192;  // Moderate buffer size
             this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
             
-            // Resampling setup
-            const targetSampleRate = 24000;
-            const resampleRatio = nativeSampleRate / targetSampleRate;
-            
-            this.processor.onaudioprocess = (audioProcessingEvent) => {
-                if (!this.isRecording || !onDataAvailable) {
-                    return;
-                }
+            this.processor.onaudioprocess = (e) => {
+                if (!this.isRecording || !onDataAvailable) return;
                 
                 this.chunkCount++;
                 
-                // Log every 10th chunk to avoid console spam
-                if (this.chunkCount % 10 === 0) {
-                    console.log(`🎤 Processing audio chunk #${this.chunkCount}`);
-                }
-                
                 try {
-                    // Get input data at native sample rate
-                    const inputBuffer = audioProcessingEvent.inputBuffer;
-                    const inputData = inputBuffer.getChannelData(0);
+                    // Get audio data (already at 24kHz thanks to AudioContext)
+                    const inputData = e.inputBuffer.getChannelData(0);
                     
-                    // Check if input has audio
-                    let hasAudio = false;
+                    // Check for actual audio (not silence)
+                    let rms = 0;
                     for (let i = 0; i < inputData.length; i++) {
-                        if (Math.abs(inputData[i]) > 0.01) {
-                            hasAudio = true;
-                            break;
-                        }
+                        rms += inputData[i] * inputData[i];
                     }
+                    rms = Math.sqrt(rms / inputData.length);
                     
-                    if (!hasAudio) {
-                        // Skip silent chunks
+                    // Skip silent chunks (RMS below threshold)
+                    if (rms < 0.01) {
                         return;
                     }
                     
-                    // Resample to 24kHz
-                    const resampledLength = Math.floor(inputData.length / resampleRatio);
-                    const resampled = new Float32Array(resampledLength);
-                    
-                    for (let i = 0; i < resampledLength; i++) {
-                        const srcIndex = Math.floor(i * resampleRatio);
-                        resampled[i] = inputData[srcIndex];
+                    // Convert float32 to PCM16 with proper clamping
+                    const pcm16 = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        // Clamp to [-1, 1] and convert to PCM16
+                        let sample = Math.max(-1, Math.min(1, inputData[i]));
+                        pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
                     }
                     
-                    // Convert to PCM16
-                    const pcm16 = new Int16Array(resampled.length);
-                    for (let i = 0; i < resampled.length; i++) {
-                        const s = Math.max(-1, Math.min(1, resampled[i]));
-                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                    }
-                    
-                    // Convert to base64
-                    const uint8 = new Uint8Array(pcm16.buffer);
+                    // Convert to base64 efficiently
+                    const bytes = new Uint8Array(pcm16.buffer);
                     let binary = '';
-                    const len = uint8.byteLength;
-                    for (let i = 0; i < len; i++) {
-                        binary += String.fromCharCode(uint8[i]);
+                    const chunkSize = 0x8000; // 32KB chunks for performance
+                    for (let i = 0; i < bytes.length; i += chunkSize) {
+                        binary += String.fromCharCode.apply(null, 
+                            bytes.subarray(i, Math.min(i + chunkSize, bytes.length))
+                        );
                     }
                     const base64 = btoa(binary);
                     
-                    // Log every 10th send
+                    // Log periodically
                     if (this.chunkCount % 10 === 0) {
-                        console.log(`📤 Sending ${base64.length} bytes (chunk #${this.chunkCount})`);
+                        console.log(`🎤 Chunk #${this.chunkCount}: ${base64.length} bytes, RMS: ${rms.toFixed(4)}`);
                     }
                     
                     // Send to callback
@@ -772,9 +757,8 @@ class AudioHandler {
             this.isRecording = true;
             this.chunkCount = 0;
             
-            console.log(`🎤 Recording started: ${nativeSampleRate}Hz → 24kHz mono PCM16`);
-            console.log(`📊 Buffer size: ${bufferSize} samples`);
-            showNotification('Recording started - Speak now!', 'success');
+            console.log(`🎤 Recording started at ${this.audioContext.sampleRate}Hz (PCM16 mono)`);
+            showNotification('Recording started - Speak clearly!', 'success');
             return true;
 
         } catch (error) {
@@ -817,14 +801,14 @@ class AudioHandler {
 
     playAudio(hexData) {
         try {
-            console.log(`🔊 Playing audio response (${hexData.length} bytes)`);
+            console.log(`🔊 Playing ${hexData.length} bytes audio`);
             
             // Convert hex to bytes
             const bytes = new Uint8Array(
                 hexData.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
             );
             
-            // Create AudioContext for playback at 24kHz
+            // Create AudioContext at 24kHz
             const audioContext = new (window.AudioContext || window.webkitAudioContext)({
                 sampleRate: 24000
             });
@@ -847,12 +831,11 @@ class AudioHandler {
             source.connect(audioContext.destination);
             source.start();
             
-            console.log('✅ Audio playback started');
+            console.log('✅ Playback started');
             
-            // Cleanup
             source.onended = () => {
                 audioContext.close();
-                console.log('✅ Audio playback finished');
+                console.log('✅ Playback finished');
             };
 
         } catch (error) {
@@ -860,6 +843,7 @@ class AudioHandler {
         }
     }
 }
+
 
 
 
