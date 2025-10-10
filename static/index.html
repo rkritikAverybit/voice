@@ -761,83 +761,83 @@ console.log('📍 WebSocket URL:', CONFIG.WS_BASE_URL);
             }
 
             async connect() {
-                if (this.isConnecting) {
-                    console.log('⚠️ Already connecting...');
-                    return;
-                }
+    if (this.isConnecting) {
+        console.log('⚠️ Already connecting...');
+        return;
+    }
 
-                return new Promise((resolve, reject) => {
-                    try {
-                        this.isConnecting = true;
-                        const wsUrl = `${CONFIG.WS_BASE_URL}/ws/voice/${this.sessionId}`;
-                        console.log('🔄 Connecting to:', wsUrl);
-                        
-                        this.ws = new WebSocket(wsUrl);
+    return new Promise((resolve, reject) => {
+        try {
+            this.isConnecting = true;
+            const wsUrl = `${CONFIG.WS_BASE_URL}/ws/voice/${this.sessionId}`;
+            console.log('🔄 Connecting to:', wsUrl);
+            
+            this.ws = new WebSocket(wsUrl);
 
-                        this.ws.onopen = () => {
-    console.log('✅ WebSocket connected');
-    this.reconnectAttempts = 0;
-    this.isConnecting = false;
-    
-    // ✅ Auto-send start_session after connection
-    setTimeout(() => {
-        this.send({
-            type: 'start_session',
-            timestamp: new Date().toISOString()
-        });
-        console.log('📤 Sent start_session message');
-    }, 100);
-    
-    resolve();
-};
+            this.ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+                this.reconnectAttempts = 0;
+                this.isConnecting = false;
+                
+                // ✅ Send start_session message
+                setTimeout(() => {
+                    this.send({
+                        type: 'start_session',
+                        timestamp: new Date().toISOString()
+                    });
+                    console.log('📤 Sent start_session');
+                }, 100);
+                
+                resolve();
+            };
 
-
-                        this.ws.onmessage = (event) => {
-                            try {
-                                const data = JSON.parse(event.data);
-                                console.log('📩 Received:', data.type);
-                                
-                                if (this.onMessage) {
-                                    this.onMessage(data);
-                                }
-                            } catch (error) {
-                                console.error('❌ Message parse error:', error);
-                            }
-                        };
-
-                        this.ws.onerror = (error) => {
-                            console.error('❌ WebSocket error:', error);
-                            this.isConnecting = false;
-                            
-                            if (this.onError) {
-                                this.onError(error);
-                            }
-                            reject(error);
-                        };
-
-                        this.ws.onclose = () => {
-                            console.log('🔌 WebSocket disconnected');
-                            this.isConnecting = false;
-                            
-                            if (this.onClose) {
-                                this.onClose();
-                            }
-                            
-                            // Auto-reconnect
-                            if (this.reconnectAttempts < CONFIG.RECONNECT_ATTEMPTS) {
-                                this.reconnectAttempts++;
-                                console.log(`🔄 Reconnecting... (${this.reconnectAttempts}/${CONFIG.RECONNECT_ATTEMPTS})`);
-                                setTimeout(() => this.connect(), CONFIG.RECONNECT_DELAY);
-                            }
-                        };
-
-                    } catch (error) {
-                        console.error('❌ Connection error:', error);
-                        this.isConnecting = false;
-                        reject(error);
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('📩 Received:', data.type);
+                    
+                    if (this.onMessage) {
+                        this.onMessage(data);
                     }
-                });
-            }
+                } catch (error) {
+                    console.error('❌ Message parse error:', error);
+                }
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+                this.isConnecting = false;
+                
+                if (this.onError) {
+                    this.onError(error);
+                }
+                reject(error);
+            };
+
+            this.ws.onclose = () => {
+                console.log('🔌 WebSocket disconnected');
+                this.isConnecting = false;
+                
+                if (this.onClose) {
+                    this.onClose();
+                }
+                
+                // Auto-reconnect logic
+                if (this.reconnectAttempts < CONFIG.RECONNECT_ATTEMPTS) {
+                    this.reconnectAttempts++;
+                    console.log(`🔄 Reconnecting... (${this.reconnectAttempts}/${CONFIG.RECONNECT_ATTEMPTS})`);
+                    setTimeout(() => this.connect(), CONFIG.RECONNECT_DELAY);
+                }
+            };
+
+        } catch (error) {
+            console.error('❌ Connection error:', error);
+            this.isConnecting = false;
+            reject(error);
+        }
+    });
+}
+
 
             send(data) {
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
