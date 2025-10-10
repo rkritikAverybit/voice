@@ -612,12 +612,15 @@
     </div>
 
     <script>
-        // ==================== CONFIGURATION ====================
 
+// ==================== CONFIGURATION ====================
 const CONFIG = {
-    // For HTTPS sites (Render), use WSS
+    // Automatically detect protocol and use correct WebSocket protocol
     API_BASE_URL: window.location.origin,
-    WS_BASE_URL: window.location.origin.replace('https://', 'wss://').replace('http://', 'ws://'),
+    WS_BASE_URL: (() => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}`;
+    })(),
     
     MAX_MESSAGE_LENGTH: 1000,
     AUTO_SCROLL: true,
@@ -625,6 +628,9 @@ const CONFIG = {
     RECONNECT_DELAY: 2000,
     AUDIO_CHUNK_INTERVAL: 100
 };
+
+console.log('📍 API URL:', CONFIG.API_BASE_URL);
+console.log('📍 WebSocket URL:', CONFIG.WS_BASE_URL);
 
 
 
