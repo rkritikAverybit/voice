@@ -419,16 +419,36 @@ async def handle_ai_error(session_id: str, error: str):
         except Exception as e:
             logger.error(f"❌ Error sending error: {e}")
 
+
+
 async def cleanup_session(session_id: str):
+    """Cleanup session resources"""
     session = active_sessions.get(session_id)
-    if session:
-        if session["openai_client"]:
-            try:
-                await session["openai_client"].close()
-            except:
-                pass
+    if not session:
+        logger.info(f"⚠️ Session {session_id} already cleaned up")
+        return  # ✅ Early return if already deleted
+    
+    # Close OpenAI client
+    if session.get("openai_client"):
+        try:
+            await session["openai_client"].close()
+            logger.info(f"🔌 OpenAI client closed for {session_id}")
+        except Exception as e:
+            logger.error(f"❌ Error closing OpenAI client: {e}")
+    
+    # Disconnect WebSocket
+    try:
         await connection_manager.disconnect(session_id)
+    except Exception as e:
+        logger.error(f"❌ Error disconnecting WebSocket: {e}")
+    
+    # Remove from active sessions
+    try:
         del active_sessions[session_id]
+        logger.info(f"🧹 Cleaned up session {session_id}")
+    except KeyError:
+        logger.info(f"⚠️ Session {session_id} already removed")
+
 
 @app.get("/api/health")
 async def health_check():
