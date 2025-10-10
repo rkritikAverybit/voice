@@ -1,13 +1,9 @@
 services:
   - type: web
     name: mindful-app
-    env: python
-    buildCommand: |
-      pip install --upgrade pip wheel setuptools
-      pip install -r requirements.txt
-    startCommand: uvicorn backend:app --host 0.0.0.0 --port $PORT
+    env: docker           # 👈 tells Render to build from your Dockerfile
     plan: free
-    buildImage: python:3.12-bullseye        # 👈 Force Render to use Python 3.12
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: OPENAI_API_KEY
         sync: false
