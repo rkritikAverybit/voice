@@ -90,7 +90,15 @@ class ChatResponse(BaseModel):
 # ==================== OPENAI REALTIME CLIENT ====================
 
 class OpenAIRealtimeClient:
-    def __init__(self, session_id: str, on_audio_response: Callable, on_transcript: Callable, on_error: Callable):
+    """OpenAI Realtime API WebSocket client"""
+    
+    def __init__(
+        self,
+        session_id: str,
+        on_audio_response: Callable,
+        on_transcript: Callable,
+        on_error: Callable
+    ):
         self.session_id = session_id
         self.ws = None
         self.on_audio_response = on_audio_response
@@ -101,27 +109,42 @@ class OpenAIRealtimeClient:
         self.audio_buffer = bytearray()
         
     async def connect(self):
+        """Connect to OpenAI Realtime API"""
         try:
             headers = {
                 "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
                 "OpenAI-Beta": "realtime=v1"
             }
+            
             logger.info(f"🔄 Connecting to OpenAI for {self.session_id}")
-            self.ws = await websockets.connect(Config.REALTIME_URL, extra_headers=headers, ping_interval=20)
+            
+            self.ws = await websockets.connect(
+                Config.REALTIME_URL,
+                extra_headers=headers,
+                ping_interval=20,
+                ping_timeout=10
+            )
+            
             self.running = True
             asyncio.create_task(self._receive_loop())
-            await self._send_message({"type": "session.create"})
-            logger.info("✅ Connected to OpenAI")
+            
+            # Configure session immediately
+            await self._configure_session()
+            
+            logger.info(f"✅ Connected to OpenAI")
+            
         except Exception as e:
             logger.error(f"❌ Connection failed: {e}")
             await self.on_error(str(e))
             raise
     
     async def _send_message(self, message: dict):
+        """Send message to OpenAI"""
         if self.ws:
             await self.ws.send(json.dumps(message))
     
     async def _receive_loop(self):
+        """Receive messages from OpenAI"""
         try:
             async for message in self.ws:
                 event = json.loads(message)
@@ -131,55 +154,87 @@ class OpenAIRealtimeClient:
             await self.on_error(str(e))
     
     async def _handle_event(self, event: dict):
+        """Handle incoming events"""
         event_type = event.get("type")
         
-        if event_type == "session.created":
-            await self._configure_session()
-        elif event_type == "session.updated":
+        if event_type == "session.updated":
             self.session_ready.set()
+            logger.info(f"✅ Session ready for {self.session_id}")
+            
         elif event_type == "response.audio.delta":
             delta_b64 = event.get("delta", "")
             if delta_b64:
-                self.audio_buffer.extend(base64.b64decode(delta_b64))
+                audio_bytes = base64.b64decode(delta_b64)
+                self.audio_buffer.extend(audio_bytes)
+                
         elif event_type == "response.audio.done":
             if self.audio_buffer:
                 await self.on_audio_response(bytes(self.audio_buffer))
                 self.audio_buffer.clear()
-        elif event_type in ["conversation.item.created", "response.done"]:
-            item = event.get("item", {}) if event_type == "conversation.item.created" else event.get("response", {})
-            content_list = item.get("content", []) if event_type == "conversation.item.created" else item.get("output", [])
-            for content in content_list:
-                if content.get("type") in ["audio", "message"]:
-                    for c in (content.get("content", []) if content.get("type") == "message" else [content]):
-                        if c.get("type") == "audio":
-                            transcript = c.get("transcript", "")
+                
+        elif event_type == "conversation.item.created":
+            item = event.get("item", {})
+            if item.get("type") == "message":
+                for content in item.get("content", []):
+                    if content.get("type") == "audio":
+                        transcript = content.get("transcript", "")
+                        if transcript:
+                            await self.on_transcript(transcript)
+        
+        elif event_type == "response.done":
+            response = event.get("response", {})
+            for output in response.get("output", []):
+                if output.get("type") == "message":
+                    for content in output.get("content", []):
+                        if content.get("type") == "audio":
+                            transcript = content.get("transcript", "")
                             if transcript:
                                 await self.on_transcript(transcript)
+        
         elif event_type == "error":
-            await self.on_error(event.get("error", {}).get("message", "Unknown error"))
+            error_msg = event.get("error", {}).get("message", "Unknown error")
+            logger.error(f"❌ OpenAI error: {error_msg}")
+            await self.on_error(error_msg)
     
     async def _configure_session(self):
+        """Configure session settings"""
         await self._send_message({
             "type": "session.update",
             "session": {
+                "modalities": ["text", "audio"],
                 "instructions": Config.SYSTEM_PROMPT,
-                "voice": Config.VOICE,
-                "input_audio_format": Config.INPUT_AUDIO_FORMAT,
-                "output_audio_format": Config.OUTPUT_AUDIO_FORMAT,
-                "turn_detection": {"type": "server_vad", "threshold": 0.5, "silence_duration_ms": 700},
-                "input_audio_transcription": {"model": "whisper-1"}
+                "voice": "alloy",
+                "input_audio_format": "pcm16",
+                "output_audio_format": "pcm16",
+                "input_audio_transcription": {
+                    "model": "whisper-1"
+                },
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 700
+                }
             }
         })
+        logger.info(f"⚙️ Session configured for {self.session_id}")
     
     async def send_audio(self, audio_data: str):
+        """Send audio data to OpenAI"""
         if not self.session_ready.is_set():
             await self.session_ready.wait()
-        await self._send_message({"type": "input_audio_buffer.append", "audio": audio_data})
+        
+        await self._send_message({
+            "type": "input_audio_buffer.append",
+            "audio": audio_data
+        })
     
     async def close(self):
+        """Close connection"""
         self.running = False
         if self.ws:
             await self.ws.close()
+            logger.info(f"🔌 OpenAI client closed for {self.session_id}")
 
 # ==================== OPENAI SERVICE ====================
 
