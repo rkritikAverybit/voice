@@ -614,11 +614,10 @@
     <script>
         // ==================== CONFIGURATION ====================
 
-      // Line 409-414 (inside <script> tag)
 const CONFIG = {
-    // ✅ Same domain - works on Render automatically!
+    // For HTTPS sites (Render), use WSS
     API_BASE_URL: window.location.origin,
-    WS_BASE_URL: window.location.origin.replace('http', 'ws'),
+    WS_BASE_URL: window.location.origin.replace('https://', 'wss://').replace('http://', 'ws://'),
     
     MAX_MESSAGE_LENGTH: 1000,
     AUTO_SCROLL: true,
@@ -626,6 +625,7 @@ const CONFIG = {
     RECONNECT_DELAY: 2000,
     AUDIO_CHUNK_INTERVAL: 100
 };
+
 
 
         // ==================== UTILITY FUNCTIONS ====================
