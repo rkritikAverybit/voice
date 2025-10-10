@@ -259,9 +259,10 @@ class OpenAIRealtimeClient:
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500,  # ✅ Reduced for faster response
+                    "silence_duration_ms": 700,  # ✅ Reduced for faster response
                     "create_response": True  # ✅ Auto-create response after speech
                 },
+                
                 "temperature": 0.8,
                 "max_response_output_tokens": 4096
             }
