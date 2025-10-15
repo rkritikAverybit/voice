@@ -237,9 +237,10 @@
           startHeartbeat();
 
           // Use browser-native sample rate to avoid mismatch issues
-          ac = new (window.AudioContext || window.webkitAudioContext)();
+
+          ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
           micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,sampleRate: 16000,sampleSize: 16 }
           });
           srcNode = ac.createMediaStreamSource(micStream);
 
