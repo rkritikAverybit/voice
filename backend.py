@@ -1,11 +1,3 @@
-"""
-Mindful+ Voice API — FastAPI backend
-- Serves /static/index.html
-- POST /api/chat with light memory
-- WebSocket /ws/voice/{sid} to OpenAI Realtime (modalities ["audio","text"])
-- Forwards partial transcript deltas and final transcripts
-- Sends audio response as hex to the client
-"""
 
 import os
 import json
