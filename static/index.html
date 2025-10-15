@@ -65,7 +65,12 @@ themeBtn.onclick=()=>{const dark=root.getAttribute('data-theme')==='dark';if(dar
 
 const chat=document.getElementById('chat'),input=document.getElementById('input'),sendBtn=document.getElementById('send'),
 micBtn=document.getElementById('mic'),dot=document.getElementById('dot'),stat=document.getElementById('stat'),mode=document.getElementById('mode');
-const CONFIG={API_BASE:window.location.origin,WS_BASE:(location.protocol==='https:'?'wss://':'ws://')+location.host};
+
+const CONFIG = {
+  API_BASE: window.location.origin,
+  WS_BASE: 'wss://' + window.location.host
+};
+
 let ws=null,ac=null,micStream=null,srcNode=null,proc=null,recording=false;
 
 function now(){return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
