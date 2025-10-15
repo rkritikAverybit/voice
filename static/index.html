@@ -323,8 +323,10 @@
       try{
         const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
         const samples = bytes.length / 2;
-        const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
-        const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
+
+        const ctx2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const buf = ctx2.createBuffer(1, samples, 16000);
+
         const ch = buf.getChannelData(0);
         const dv = new DataView(bytes.buffer);
         for(let i=0;i<samples;i++){
