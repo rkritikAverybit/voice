@@ -1,329 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🪷 Mindful+ — Chat & Voice</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>🪷 Mindful+ — Chat & Voice</title>
+<style>
+  :root{
+    --bg:#f4f9f9; --card:#ffffff; --text:#102a43; --muted:#6b7280;
+    --accent:#2aa198; --accent2:#3b82f6; --ring:rgba(42,161,152,0.28);
+    --grad:linear-gradient(135deg,#87ceeb 0%,#2aa198 100%);
+    --shadow:0 10px 30px rgba(0,0,0,0.12);
+    --border:rgba(127,140,141,0.20);
+    --sidebar:#ecf4f3;
+  }
+  [data-theme="dark"]{
+    --bg:#0e1419; --card:#111a21; --text:#dbe2e7; --muted:#9aa7b0;
+    --accent:#35c2b8; --accent2:#60a5fa; --ring:rgba(53,194,184,0.28);
+    --grad:linear-gradient(135deg,#1e293b 0%,#0ea5a5 100%);
+    --shadow:0 10px 40px rgba(0,0,0,0.45);
+    --border:rgba(127,140,141,0.28);
+    --sidebar:#0b1217;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  .shell{display:grid;grid-template-columns:260px 1fr;gap:16px;max-width:1200px;margin:auto;padding:16px}
+  @media (max-width: 980px){ .shell{grid-template-columns:1fr} #sidebar{order:2} #main{order:1} }
+  header{display:flex;justify-content:space-between;align-items:center;background:var(--card);border-radius:18px;padding:12px 16px;box-shadow:var(--shadow);margin-bottom:12px}
+  .brand{font-weight:800;font-size:1.3rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .right{display:flex;gap:8px;align-items:center}
+  .pill{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:rgba(127,140,141,0.12);color:var(--muted);font-weight:600}
+  .dot{width:10px;height:10px;border-radius:50%;background:#ef4444}
+  .dot.connecting{background:#f59e0b;animation:pulse 1.2s infinite}
+  .dot.connected{background:#10b981;animation:pulse 2s infinite}
+  .btn{border:none;border-radius:12px;padding:8px 10px;background:rgba(127,140,141,0.12);color:var(--text);cursor:pointer;font-weight:600}
 
-  <style>
-    :root {
-      --bg: #f4f9f9;
-      --card: #ffffff;
-      --text: #102a43;
-      --muted: #6b7280;
-      --accent: #2aa198;
-      --accent2: #3b82f6;
-      --ring: rgba(42, 161, 152, 0.28);
-      --grad: linear-gradient(135deg, #87ceeb 0%, #2aa198 100%);
-      --shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-      --border: rgba(127, 140, 141, 0.2);
-    }
+  /* Sidebar */
+  #sidebar{background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:12px}
+  .side-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .session-list{max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--sidebar)}
+  .session{padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer}
+  .session:last-child{border-bottom:none}
+  .session:hover{background:rgba(127,140,141,0.08)}
+  .session .t{font-weight:600}
+  .session .s{font-size:.8rem;color:var(--muted)}
 
-    [data-theme="dark"] {
-      --bg: #0e1419;
-      --card: #111a21;
-      --text: #dbe2e7;
-      --muted: #9aa7b0;
-      --accent: #35c2b8;
-      --accent2: #60a5fa;
-      --ring: rgba(53, 194, 184, 0.28);
-      --grad: linear-gradient(135deg, #1e293b 0%, #0ea5a5 100%);
-      --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
-      --border: rgba(127, 140, 141, 0.28);
-    }
+  /* Main card */
+  #main{display:flex;flex-direction:column}
+  section.card{background:var(--card);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
+  .topbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .row{display:flex;gap:8px;align-items:center}
+  select, .small{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:10px;padding:8px;font:inherit}
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+  .chat{height:60vh;min-height:420px;overflow:auto;background:rgba(127,140,141,0.08);border:1px solid var(--border);border-radius:14px;padding:12px;position:relative}
+  .msg{margin:8px 0;display:flex;flex-direction:column;animation:slideIn .18s ease}
+  .bubble{padding:10px 14px;border-radius:16px;max-width:78%;line-height:1.5}
+  .msg.user{align-items:flex-end}
+  .msg.user .bubble{background:var(--grad);color:#fff;border-bottom-right-radius:6px}
+  .msg.assistant .bubble{background:rgba(127,140,141,0.18);color:var(--text);border-bottom-left-radius:6px}
+  .timestamp{font-size:.72rem;color:var(--muted);margin-top:4px}
+  .typing{position:absolute;left:12px;bottom:10px;font-size:.9rem;color:var(--muted);display:none;align-items:center;gap:8px}
+  .typing.show{display:flex}
+  .dots span{display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--muted);margin-right:3px;animation:blink 1.2s infinite}
+  .dots span:nth-child(2){animation-delay:.2s}
+  .dots span:nth-child(3){animation-delay:.4s}
+  .scroll{position:absolute;right:12px;bottom:12px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:999px;cursor:pointer;display:none;box-shadow:var(--shadow);font-size:.85rem}
+  .scroll.show{display:block}
 
-    html,
-    body {
-      height: 100%;
-    }
+  .chat-input{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:10px;align-items:center}
+  textarea{border:2px solid var(--border);background:transparent;color:var(--text);border-radius:12px;padding:12px;resize:none;font:inherit;min-height:44px;max-height:160px}
+  button.icon{border:none;border-radius:12px;font-weight:700;cursor:pointer}
+  .send{padding:12px 16px;background:var(--grad);color:#fff}
+  .mic{position:relative;width:48px;height:48px;background:rgba(127,140,141,0.15);color:var(--text);display:grid;place-items:center}
+  .mic-ring{position:absolute;inset:-6px;border-radius:999px;border:3px solid transparent;transition:box-shadow .12s ease}
+  .mic.active{color:#b91c1c;background:rgba(239,68,68,0.12)}
+  .mic.active .mic-ring{border-color:var(--ring);animation:ringPulse 1.5s ease-in-out infinite}
 
-    body {
-      font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 20px;
-    }
-
-    .container {
-      max-width: 900px;
-      margin: auto;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: var(--card);
-      border-radius: 18px;
-      padding: 16px 20px;
-      box-shadow: var(--shadow);
-      margin-bottom: 18px;
-    }
-
-    .brand {
-      font-weight: 800;
-      font-size: 1.6rem;
-      background: var(--grad);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .right {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .pill {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(127, 140, 141, 0.12);
-      color: var(--muted);
-      font-weight: 600;
-    }
-
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #ef4444;
-    }
-
-    .dot.connecting {
-      background: #f59e0b;
-      animation: pulse 1.2s infinite;
-    }
-
-    .dot.connected {
-      background: #10b981;
-      animation: pulse 2s infinite;
-    }
-
-    .btn {
-      border: none;
-      border-radius: 12px;
-      padding: 8px 12px;
-      background: rgba(127, 140, 141, 0.12);
-      color: var(--text);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    section.card {
-      background: var(--card);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: var(--shadow);
-    }
-
-    .chat {
-      height: 520px;
-      overflow: auto;
-      background: rgba(127, 140, 141, 0.08);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      margin-top: 8px;
-      position: relative;
-    }
-
-    .msg {
-      margin: 8px 0;
-      display: flex;
-      flex-direction: column;
-      animation: slideIn 0.18s ease;
-    }
-
-    .bubble {
-      padding: 10px 14px;
-      border-radius: 16px;
-      max-width: 78%;
-      line-height: 1.5;
-    }
-
-    .msg.user {
-      align-items: flex-end;
-    }
-
-    .msg.user .bubble {
-      background: var(--grad);
-      color: #fff;
-      border-bottom-right-radius: 6px;
-    }
-
-    .msg.assistant .bubble {
-      background: rgba(127, 140, 141, 0.18);
-      color: var(--text);
-      border-bottom-left-radius: 6px;
-    }
-
-    .timestamp {
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-top: 4px;
-    }
-
-    .typing {
-      position: absolute;
-      left: 14px;
-      bottom: 10px;
-      font-size: 0.9rem;
-      color: var(--muted);
-      display: none;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .typing.show {
-      display: flex;
-    }
-
-    .dots span {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: var(--muted);
-      margin-right: 3px;
-      animation: blink 1.2s infinite;
-    }
-
-    .dots span:nth-child(2) {
-      animation-delay: 0.2s;
-    }
-
-    .dots span:nth-child(3) {
-      animation-delay: 0.4s;
-    }
-
-    .chat-input {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 8px;
-      margin-top: 10px;
-      align-items: center;
-    }
-
-    textarea {
-      border: 2px solid var(--border);
-      background: transparent;
-      color: var(--text);
-      border-radius: 12px;
-      padding: 12px;
-      resize: none;
-      font: inherit;
-      min-height: 44px;
-      max-height: 160px;
-    }
-
-    button.icon {
-      border: none;
-      border-radius: 12px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .send {
-      padding: 12px 16px;
-      background: var(--grad);
-      color: #fff;
-    }
-
-    .mic {
-      position: relative;
-      width: 48px;
-      height: 48px;
-      background: rgba(127, 140, 141, 0.15);
-      color: var(--text);
-      display: grid;
-      place-items: center;
-    }
-
-    .mic-ring {
-      position: absolute;
-      inset: -6px;
-      border-radius: 999px;
-      border: 3px solid transparent;
-    }
-
-    .mic.active {
-      color: #b91c1c;
-      background: rgba(239, 68, 68, 0.12);
-    }
-
-    .mic.active .mic-ring {
-      border-color: var(--ring);
-      animation: ringPulse 1.5s ease-in-out infinite;
-    }
-
-    .scroll {
-      position: absolute;
-      right: 12px;
-      bottom: 12px;
-      background: var(--card);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 6px 10px;
-      border-radius: 999px;
-      cursor: pointer;
-      display: none;
-      box-shadow: var(--shadow);
-      font-size: 0.85rem;
-    }
-
-    .scroll.show {
-      display: block;
-    }
-
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-    }
-
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes blink {
-      0%, 80%, 100% { opacity: 0.25; }
-      40% { opacity: 1; }
-    }
-
-    @keyframes ringPulse {
-      0% { box-shadow: 0 0 0 0 var(--ring); }
-      70% { box-shadow: 0 0 0 12px transparent; }
-      100% { box-shadow: 0 0 0 0 transparent; }
-    }
-  </style>
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+  @keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  @keyframes ringPulse{0%{box-shadow:0 0 0 0 var(--ring)}70%{box-shadow:0 0 0 12px transparent}100%{box-shadow:0 0 0 0 transparent}}
+</style>
 </head>
-
 <body>
-  <div class="container" id="root">
+<div class="shell" id="root">
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="side-head">
+      <div class="brand" style="font-size:1.1rem">Mindful+ Sessions</div>
+      <button id="newChat" class="btn small">New</button>
+    </div>
+    <div id="sessions" class="session-list"></div>
+  </aside>
+
+  <!-- Main -->
+  <div id="main">
     <header>
       <div class="brand">🪷 Mindful+</div>
       <div class="right">
         <button id="theme" class="btn" title="Toggle theme">🌓</button>
-        <div class="pill">
-          <span id="dot" class="dot"></span>
-          <span id="stat">Disconnected</span>
-        </div>
+        <div class="pill"><span id="dot" class="dot"></span><span id="stat">Disconnected</span></div>
       </div>
     </header>
 
     <section class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h3>Chat & Voice</h3>
-        <small id="mode" style="color:var(--muted)"></small>
+      <div class="topbar">
+        <div class="row">
+          <label class="small">Persona</label>
+          <select id="persona">
+            <option value="calm" selected>Calm</option>
+            <option value="friendly">Friendly</option>
+            <option value="mentor">Mentor</option>
+          </select>
+          <label class="small">Ambient</label>
+          <select id="ambient">
+            <option value="off" selected>Off</option>
+            <option value="breeze">Breeze</option>
+            <option value="waves">Waves</option>
+          </select>
+        </div>
+        <small id="mode" class="small" style="opacity:.8">Text mode</small>
       </div>
 
       <div id="chat" class="chat">
@@ -331,28 +127,428 @@
           <div class="bubble">Welcome to Mindful+. How are you feeling today?</div>
           <div class="timestamp"></div>
         </div>
-
         <div id="typing" class="typing">
           <span>Mindful is responding</span>
           <div class="dots"><span></span><span></span><span></span></div>
         </div>
-
         <button id="scrollBtn" class="scroll">⬇ Scroll</button>
       </div>
 
       <div class="chat-input">
         <textarea id="input" rows="1" placeholder="Type your message..."></textarea>
-        <button id="send" class="icon send">➤</button>
-        <button id="mic" class="icon mic" title="Start voice">
+        <button id="send" class="icon send" title="Send (Ctrl+Enter)">➤</button>
+        <button id="mic" class="icon mic" title="Start voice (Ctrl+M)">
           <span class="mic-ring"></span>🎙️
         </button>
       </div>
     </section>
   </div>
+</div>
 
-  <script>
-    // JavaScript remains unchanged from your original
-    // (it’s long and functional — you don’t need it reformatted unless you enjoy suffering)
-  </script>
+<script>
+  // ---------- Theme (auto + toggle) ----------
+  const root = document.getElementById('root');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const savedTheme = localStorage.getItem('mindful_theme') || (prefersDark ? 'dark' : 'light');
+  if (savedTheme === 'dark') root.setAttribute('data-theme','dark');
+  document.getElementById('theme').onclick = () => {
+    const dark = root.getAttribute('data-theme') === 'dark';
+    if (dark) root.removeAttribute('data-theme'); else root.setAttribute('data-theme','dark');
+    localStorage.setItem('mindful_theme', dark ? 'light' : 'dark');
+  };
+
+  // ---------- Elements ----------
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const micBtn = document.getElementById('mic');
+  const typing = document.getElementById('typing');
+  const scrollBtn = document.getElementById('scrollBtn');
+  const dot = document.getElementById('dot');
+  const stat = document.getElementById('stat');
+  const mode = document.getElementById('mode');
+  const personaSel = document.getElementById('persona');
+  const ambientSel = document.getElementById('ambient');
+  const newChatBtn = document.getElementById('newChat');
+  const sessionsUI = document.getElementById('sessions');
+
+  const CONFIG = {
+    API_BASE: window.location.origin,
+    WS_BASE: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host,
+    MAX_LEN: 1000,
+    HEARTBEAT_MS: 20000,
+    SESSIONS_KEY: 'mindful_sessions_v2'
+  };
+
+  // ---------- Local sessions (memory only) ----------
+  let sessions = JSON.parse(localStorage.getItem(CONFIG.SESSIONS_KEY) || '[]'); // [{id, title, time, messages:[{role,text,ts}]}]
+  let currentId = sessions[0]?.id || createNewSession();
+
+  function createNewSession(){
+    const id = 's_'+Date.now().toString(36);
+    const s = { id, title: 'Session '+new Date().toLocaleString(), time: Date.now(), messages: [] };
+    sessions.unshift(s);
+    saveSessions();
+    renderSessions();
+    loadSession(id);
+    return id;
+  }
+  function saveSessions(){ localStorage.setItem(CONFIG.SESSIONS_KEY, JSON.stringify(sessions)); }
+  function renderSessions(){
+    sessionsUI.innerHTML = '';
+    sessions.forEach(s=>{
+      const div = document.createElement('div');
+      div.className = 'session';
+      div.onclick = ()=>loadSession(s.id);
+      div.innerHTML = `<div class="t">${s.title}</div><div class="s">${new Date(s.time).toLocaleString()}</div>`;
+      sessionsUI.appendChild(div);
+    });
+  }
+  function loadSession(id){
+    currentId = id;
+    chat.innerHTML = '';
+    const s = sessions.find(x=>x.id===id);
+    if (!s){ return; }
+    s.messages.forEach(m=>addMsg(m.role, m.text, false, m.ts));
+    chat.appendChild(typing);
+    chat.appendChild(scrollBtn);
+  }
+  function appendToCurrent(role, text){
+    const s = sessions.find(x=>x.id===currentId);
+    if (!s) return;
+    s.messages.push({role, text, ts: Date.now()});
+    s.time = Date.now();
+    saveSessions();
+    renderSessions();
+  }
+
+  renderSessions();
+  loadSession(currentId);
+  newChatBtn.onclick = createNewSession;
+
+  // ---------- Helpers ----------
+  function nowTime(ts){
+    const d = ts ? new Date(ts) : new Date();
+    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+  let partialNode = null;
+  function addMsg(role, text, isPartial=false, stamp=null){
+    if (isPartial){
+      if (!partialNode){
+        const wrap = document.createElement('div');
+        wrap.className = 'msg assistant';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        wrap.appendChild(bubble);
+        const ts = document.createElement('div');
+        ts.className = 'timestamp';
+        wrap.appendChild(ts);
+        chat.appendChild(wrap);
+        partialNode = {bubble, ts};
+      }
+      partialNode.bubble.textContent = '🔊 ' + text;
+      partialNode.ts.textContent = nowTime();
+      chat.scrollTop = chat.scrollHeight;
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'sys');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    const ts = document.createElement('div');
+    ts.className = 'timestamp';
+    ts.textContent = nowTime(stamp);
+    wrap.appendChild(ts);
+    chat.appendChild(wrap);
+    partialNode = null;
+    chat.scrollTop = chat.scrollHeight;
+  }
+  function setStatus(c,t){ dot.className = 'dot ' + c; stat.textContent = t; }
+
+  // Scroll anchor
+  chat.addEventListener('scroll', ()=>{
+    const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60;
+    scrollBtn.classList.toggle('show', !nearBottom);
+  });
+  scrollBtn.onclick = ()=>chat.scrollTo({top: chat.scrollHeight, behavior:'smooth'});
+
+  // Input behaviors
+  input.addEventListener('input', function(){
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+  });
+  input.addEventListener('keypress', e=>{
+    if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); doSend(); }
+  });
+  sendBtn.onclick = doSend;
+
+  // Hotkeys
+  document.addEventListener('keydown', e=>{
+    if (e.ctrlKey && e.key === 'Enter'){ doSend(); }
+    if (e.ctrlKey && (e.key.toLowerCase() === 'm')){ toggleMic(); }
+    if (e.key === 'Escape'){ if (recording) stopVoice(); }
+  });
+
+  const personaPrompts = {
+    calm: "Warm, slow, supportive. Keep 2–3 short sentences. Gentle grounding when useful.",
+    friendly: "Upbeat, friendly, concise. Encourage lightly. Keep it simple and kind.",
+    mentor: "Clear, practical, respectful. Offer one actionable tip, succinctly."
+  };
+
+  async function doSend(textOverride){
+    const msg = (textOverride ?? input.value).trim();
+    if (!msg) return;
+    if (msg.length > CONFIG.MAX_LEN){ addMsg('sys','Message too long.'); return; }
+    addMsg('user', msg); appendToCurrent('user', msg);
+    input.value=''; input.style.height='44px';
+    typing.classList.add('show');
+
+    // Streaming fetch
+    const persona = personaSel.value;
+    const context = `[persona:${persona}] ${personaPrompts[persona]}`;
+    try{
+      const resp = await fetch(CONFIG.API_BASE + '/api/chat_stream', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({content: msg, context})
+      });
+      if (!resp.body){ // fallback to non-stream
+        const r = await resp.json();
+        typing.classList.remove('show');
+        const text = r.response || 'No response';
+        addMsg('assistant', text); appendToCurrent('assistant', text);
+        return;
+      }
+      // stream reader
+      const reader = resp.body.getReader();
+      let acc = "", done = false;
+      let firstChunk = true;
+      while(!done){
+        const {value, done: d} = await reader.read();
+        done = d;
+        if (value){
+          const chunk = new TextDecoder().decode(value);
+          const parts = chunk.split("\n");
+          for (let line of parts){
+            if (!line.trim()) continue;
+            if (line.startsWith("data:")){
+              const payload = line.slice(5).trim();
+              if (payload === "[DONE]") { done = true; break; }
+              try{
+                const obj = JSON.parse(payload);
+                const delta = obj.delta || "";
+                acc += delta;
+                if (firstChunk){ addMsg('assistant', delta, true); firstChunk=false; }
+                else addMsg('assistant', acc, true);
+              }catch{}
+            }
+          }
+        }
+      }
+      typing.classList.remove('show');
+      if (acc.length){ addMsg('assistant', acc); appendToCurrent('assistant', acc); }
+    }catch(e){
+      typing.classList.remove('show');
+      addMsg('sys','Network error.');
+    }
+  }
+
+  // ---------- Voice ----------
+  let ws=null, heartbeat=null, ac=null, micStream=null, srcNode=null, proc=null, recording=false, sessionId=null;
+  let ambientCtx=null, ambientNode=null;
+
+  function toggleMic(){ recording ? stopVoice() : startVoice(); }
+  micBtn.onclick = toggleMic;
+
+  function startAmbient(kind){
+    stopAmbient();
+    if (kind==='off') return;
+    ambientCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ambientCtx.createOscillator();
+    const g = ambientCtx.createGain(); g.gain.value = 0.02; // very soft
+    o.type = kind==='waves' ? 'sine' : 'triangle';
+    o.frequency.value = kind==='waves' ? 120 : 260;
+    o.connect(g); g.connect(ambientCtx.destination); o.start();
+    ambientNode = o;
+  }
+  function stopAmbient(){
+    try{ if (ambientNode){ ambientNode.stop(); ambientNode.disconnect(); } }catch(e){}
+    try{ if (ambientCtx){ ambientCtx.close(); } }catch(e){}
+    ambientNode=null; ambientCtx=null;
+  }
+
+  async function startVoice(){
+    try{
+      micBtn.classList.add('active'); micBtn.title = 'Stop voice (Esc)'; micBtn.innerHTML = '<span class="mic-ring"></span>⏹';
+      setStatus('connecting','Connecting...'); mode.textContent = 'Voice mode';
+      startAmbient(ambientSel.value);
+
+      sessionId = 'session_' + Date.now().toString(36);
+      ws = new WebSocket(`${CONFIG.WS_BASE}/ws/voice/${sessionId}`);
+
+      ws.onopen = async () => {
+        setStatus('connected','Listening...');
+        // push persona to backend session
+        ws.send(JSON.stringify({type:'start_session'}));
+        ws.send(JSON.stringify({type:'persona', persona: personaSel.value}));
+
+        startHeartbeat();
+
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        srcNode = ac.createMediaStreamSource(micStream);
+
+        proc = ac.createScriptProcessor(8192,1,1);
+        srcNode.connect(proc); proc.connect(ac.destination);
+
+        const ring = micBtn.querySelector('.mic-ring');
+
+        proc.onaudioprocess = e => {
+          const input = e.inputBuffer.getChannelData(0);
+          // RMS for silence + animation thickness
+          let rms = 0; for (let i=0;i<input.length;i++) rms += input[i]*input[i];
+          rms = Math.sqrt(rms/input.length);
+          const thickness = Math.min(14, 3 + rms*60); // UI feedback
+          ring.style.boxShadow = `0 0 0 ${thickness}px var(--ring)`;
+
+          if (rms < 0.01) return;
+          // send occasional emotion hint
+          if (Math.random() < 0.02 && ws && ws.readyState === WebSocket.OPEN){
+            const emo = rms > 0.12 ? 'energized' : (rms > 0.06 ? 'engaged' : 'calm');
+            ws.send(JSON.stringify({type:'emotion_hint', data:{rms, mood: emo}}));
+          }
+
+          // audio to PCM16 b64
+          const pcm16 = new Int16Array(input.length);
+          for (let i=0;i<input.length;i++){
+            const s = Math.max(-1, Math.min(1, input[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          const bytes = new Uint8Array(pcm16.buffer);
+          let binary=''; const chunk=0x8000;
+          for (let i=0;i<bytes.length;i+=chunk){
+            binary += String.fromCharCode.apply(null, bytes.subarray(i,i+chunk));
+          }
+          if (ws && ws.readyState === WebSocket.OPEN){
+            ws.send(JSON.stringify({type:'audio_data', data: btoa(binary)}));
+          }
+        };
+
+        recording = true;
+      };
+
+      ws.onmessage = ev => {
+        const data = JSON.parse(ev.data);
+        if (data.type === 'transcript_delta') addMsg('assistant', data.delta, true);
+        if (data.type === 'transcript'){
+          // auto-send final transcript as user's message
+          addMsg('user', data.text); appendToCurrent('user', data.text);
+          // kick off text streaming with persona context
+        //   const persona = personaSel.value;
+        //   const context = `[persona:${persona}] ${personaPrompts[persona]}`;
+        //   streamChat(data.text, context);
+        }
+        if (data.type === 'audio_response') playPCM16Hex(data.data);
+        if (data.type === 'error') addMsg('sys','Voice error: '+data.message);
+        if (data.type === 'session_closed') setStatus('', 'Disconnected');
+      };
+
+      ws.onclose = () => { setStatus('', 'Disconnected'); stopHeartbeat(); stopAmbient(); };
+
+    }catch(err){
+      addMsg('sys', 'Mic/WebSocket error: ' + err.message);
+      cleanupAudio(); stopAmbient();
+      micBtn.classList.remove('active'); micBtn.title='Start voice (Ctrl+M)'; micBtn.innerHTML='<span class="mic-ring"></span>🎙️';
+      mode.textContent = '';
+      setStatus('', 'Disconnected');
+    }
+  }
+
+  function streamChat(text, context){
+    typing.classList.add('show');
+    fetch(CONFIG.API_BASE + '/api/chat_stream', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({content: text, context})
+    }).then(async resp=>{
+      if (!resp.body){ const d = await resp.json(); typing.classList.remove('show'); addMsg('assistant', d.response||''); appendToCurrent('assistant', d.response||''); return; }
+      const reader = resp.body.getReader();
+      let acc = "", done = false, first = true;
+      while(!done){
+        const {value, done: d} = await reader.read();
+        done = d;
+        if (value){
+          const chunk = new TextDecoder().decode(value);
+          const lines = chunk.split("\n");
+          for (let line of lines){
+            line = line.trim();
+            if (!line) continue;
+            if (line.startsWith("data:")){
+              const payload = line.slice(5).trim();
+              if (payload === "[DONE]"){ done = true; break; }
+              try{
+                const obj = JSON.parse(payload);
+                const delta = obj.delta || "";
+                acc += delta;
+                if (first){ addMsg('assistant', delta, true); first=false; }
+                else addMsg('assistant', acc, true);
+              }catch{}
+            }
+          }
+        }
+      }
+      typing.classList.remove('show');
+      if (acc.length){ addMsg('assistant', acc); appendToCurrent('assistant', acc); }
+    }).catch(()=>{
+      typing.classList.remove('show');
+      addMsg('sys','Network error.');
+    });
+  }
+
+  function stopVoice(){
+    if (!recording) return;
+    recording = false;
+    micBtn.classList.remove('active'); micBtn.title='Start voice (Ctrl+M)'; micBtn.innerHTML='<span class="mic-ring"></span>🎙️';
+    mode.textContent = 'Text mode';
+    if (ws && ws.readyState === WebSocket.OPEN){
+      ws.send(JSON.stringify({type:'stop_session'}));
+      setTimeout(()=>{ try{ ws.close(); }catch(e){} }, 400);
+    }
+    stopHeartbeat(); stopAmbient(); cleanupAudio();
+    setStatus('', 'Disconnected');
+  }
+  function cleanupAudio(){
+    if (proc){ try{proc.disconnect()}catch{}; proc=null; }
+    if (srcNode){ try{srcNode.disconnect()}catch{}; srcNode=null; }
+    if (micStream){ try{micStream.getTracks().forEach(t=>t.stop())}catch{}; micStream=null; }
+    if (ac){ try{ac.close()}catch{}; ac=null; }
+  }
+  function startHeartbeat(){ stopHeartbeat(); heartbeat = setInterval(()=>{ if (ws && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:'ping'})); }, CONFIG.HEARTBEAT_MS); }
+  function stopHeartbeat(){ if (heartbeat) clearInterval(heartbeat); heartbeat=null; }
+
+  function playPCM16Hex(hex){
+    try{
+      const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+      const samples = bytes.length / 2;
+      const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
+      const ch = buf.getChannelData(0);
+      const dv = new DataView(bytes.buffer);
+      for(let i=0;i<samples;i++){ const v = dv.getInt16(i*2, true); ch[i] = v / 0x8000; }
+      const src = ctx2.createBufferSource(); src.buffer = buf; src.connect(ctx2.destination); src.start();
+    }catch(e){}
+  }
+
+  // Online/offline hint
+  window.addEventListener('online', ()=>addMsg('sys','Back online.'));
+  window.addEventListener('offline', ()=>addMsg('sys','You are offline.'));
+
+  // expose for debugging in console
+  window._mindful = { createNewSession };
+</script>
 </body>
 </html>
