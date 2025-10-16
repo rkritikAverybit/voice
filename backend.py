@@ -11,17 +11,19 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
+# ---------- ENV + LOG ----------
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("mindful_plus")
 
+# ---------- CONFIG ----------
 class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-4o-realtime-preview-2024-12-17")
     REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={REALTIME_MODEL}"
-    VOICE = "verse"
+    VOICE = "alloy"  # “verse” can be used when available
     INPUT_AUDIO_FORMAT = "pcm16"
-    OUTPUT_AUDIO_FORMAT = "pcm16"
+    OUTPUT_AUDIO_FORMAT = "pcm16"  # wav not supported
     SYSTEM_PROMPT = (
         "You are Mindful+, a calm, supportive voice companion. "
         "Speak warmly in simple English, 2–3 sentences. Offer gentle grounding or breathing when useful. "
@@ -34,18 +36,24 @@ class Config:
             raise RuntimeError("OPENAI_API_KEY missing")
         return True
 
+
+# ---------- DATA MODELS ----------
 class ChatMessage(BaseModel):
     content: str
     context: str = ""
+
 
 class ChatResponse(BaseModel):
     success: bool
     response: str
     timestamp: str
 
-# Simple in-memory chat memory (per server, per user in real apps)
-MEMORY: List[Dict[str, str]] = []  # list of {"role": "...", "content": "..."}, capped at 10
 
+# Simple in-memory memory (for demo)
+MEMORY: List[Dict[str, str]] = []
+
+
+# ---------- OPENAI SERVICE ----------
 class OpenAIService:
     def __init__(self):
         transport = httpx.AsyncHTTPTransport(retries=2)
@@ -53,9 +61,10 @@ class OpenAIService:
         self.client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY, http_client=http_client)
 
     async def text_reply(self, msg: str, context: str = "") -> str:
-        # Use last 5 exchanges for light memory
         history = MEMORY[-10:]
-        messages = [{"role": "system", "content": Config.SYSTEM_PROMPT}] + history + [{"role": "user", "content": msg}]
+        messages = [{"role": "system", "content": Config.SYSTEM_PROMPT}] + history + [
+            {"role": "user", "content": msg}
+        ]
         if context:
             messages.insert(1, {"role": "system", "content": f"Context: {context}"})
         try:
@@ -63,18 +72,20 @@ class OpenAIService:
                 model="gpt-4o-mini",
                 messages=messages,
                 max_tokens=400,
-                temperature=0.7
+                temperature=0.7,
             )
             text = resp.choices[0].message.content
-            # update memory
-            MEMORY.append({"role":"user","content":msg})
-            MEMORY.append({"role":"assistant","content":text})
-            if len(MEMORY) > 10: del MEMORY[:-10]
+            MEMORY.append({"role": "user", "content": msg})
+            MEMORY.append({"role": "assistant", "content": text})
+            if len(MEMORY) > 10:
+                del MEMORY[:-10]
             return text
         except Exception as e:
             log.error(f"Text API error: {e}")
             return "I'm having trouble responding right now. Please try again."
 
+
+# ---------- REALTIME CLIENT ----------
 class RealtimeClient:
     def __init__(self, sid: str, on_audio, on_text_delta, on_text_done, on_error):
         self.sid = sid
@@ -85,33 +96,38 @@ class RealtimeClient:
         self.on_error = on_error
         self.audio_buf = bytearray()
         self.ready = asyncio.Event()
+        self.response_in_progress = False
 
     async def connect(self):
         headers = {
             "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
             "OpenAI-Beta": "realtime=v1",
         }
-        self.ws = await websockets.connect(Config.REALTIME_URL, extra_headers=headers, ping_interval=20, ping_timeout=10)
+        self.ws = await websockets.connect(
+            Config.REALTIME_URL, extra_headers=headers, ping_interval=20, ping_timeout=10
+        )
         asyncio.create_task(self._recv())
-        await self._send({
-            "type": "session.update",
-            "session": {
-                "modalities": ["audio", "text"],
-                "instructions": Config.SYSTEM_PROMPT,
-                "voice": Config.VOICE,
-                "input_audio_format": Config.INPUT_AUDIO_FORMAT,
-                "output_audio_format": Config.OUTPUT_AUDIO_FORMAT,
-                "input_audio_transcription": {"model": "whisper-1"},
-                "turn_detection": {
-                    "type": "server_vad",
-                    "silence_duration_ms": 1200,
-                    "prefix_padding_ms": 250,
-                    "create_response": True
+        await self._send(
+            {
+                "type": "session.update",
+                "session": {
+                    "modalities": ["audio", "text"],
+                    "instructions": Config.SYSTEM_PROMPT,
+                    "voice": Config.VOICE,
+                    "input_audio_format": Config.INPUT_AUDIO_FORMAT,
+                    "output_audio_format": Config.OUTPUT_AUDIO_FORMAT,
+                    "input_audio_transcription": {"model": "whisper-1"},
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "silence_duration_ms": 1200,
+                        "prefix_padding_ms": 250,
+                        "create_response": True,
+                    },
+                    "temperature": 0.7,
+                    "max_response_output_tokens": 2048,
                 },
-                "temperature": 0.7,
-                "max_response_output_tokens": 2048
             }
-        })
+        )
         self.ready.set()
 
     async def _send(self, msg: dict):
@@ -141,40 +157,53 @@ class RealtimeClient:
                         await self.on_text_done(transcript)
                 elif t == "error":
                     err = e.get("error", {})
-                    await self.on_error(f"{err.get('code','')}: {err.get('message','Unknown error')}")
+                    await self.on_error(
+                        f"{err.get('code','')}: {err.get('message','Unknown error')}"
+                    )
         except Exception as ex:
             await self.on_error(str(ex))
 
     async def send_audio(self, audio_b64: str):
         await self.ready.wait()
         await self._send({"type": "input_audio_buffer.append", "audio": audio_b64})
-        # Commit after each short burst for faster recognition
-        await self._send({"type": "input_audio_buffer.commit"})
-        await self._send({"type": "response.create", "response": {"modalities": ["audio", "text"]}})
-
 
     async def commit(self):
-    if self.response_in_progress:
-        log.warning("Skipped commit: response already active")
-        return
-    if len(self.audio_buf) < 3200:
-        log.warning("Skipped commit: buffer too small")
-        return
-    self.response_in_progress = True
-    await self._send({"type": "input_audio_buffer.commit"})
-    await self._send({"type": "response.create", "response": {"modalities": ["audio","text"]}})
-    self.response_in_progress = False
+        # Prevent double responses
+        if getattr(self, "response_in_progress", False):
+            log.warning("Skipped commit: response already active")
+            return
 
+        # Ensure minimum audio buffer size (~100ms)
+        if len(self.audio_buf) < 3200:
+            log.warning("Skipped commit: buffer too small")
+            return
+
+        self.response_in_progress = True
+        try:
+            await self._send({"type": "input_audio_buffer.commit"})
+            await self._send(
+                {
+                    "type": "response.create",
+                    "response": {"modalities": ["audio", "text"]},
+                }
+            )
+        except Exception as e:
+            log.error(f"Commit error: {e}")
+        finally:
+            self.response_in_progress = False
 
     async def close(self):
         try:
-            if self.ws: await self.ws.close()
+            if self.ws:
+                await self.ws.close()
         except Exception:
             pass
 
-# -------- FastAPI app --------
+
+# ---------- FASTAPI APP ----------
 Config.validate()
-app = FastAPI(title="Mindful+ API", version="1.2.0")
+app = FastAPI(title="Mindful+ API", version="1.3.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -183,20 +212,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# static mount
+# Static mount
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# connections
 SESSIONS: Dict[str, Dict] = {}
 svc = OpenAIService()
+
 
 @app.get("/")
 async def root():
     return FileResponse("static/index.html")
 
+
 @app.get("/api/health")
 async def health():
-    return {"status":"healthy","sessions":len(SESSIONS),"key":bool(Config.OPENAI_API_KEY)}
+    return {"status": "healthy", "sessions": len(SESSIONS), "key": bool(Config.OPENAI_API_KEY)}
+
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(m: ChatMessage):
@@ -206,6 +237,8 @@ async def chat(m: ChatMessage):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ---------- WebSocket for voice ----------
 @app.websocket("/ws/voice/{sid}")
 async def ws_voice(ws: WebSocket, sid: str):
     await ws.accept()
@@ -223,7 +256,7 @@ async def ws_voice(ws: WebSocket, sid: str):
                     on_audio=lambda a: asyncio.create_task(send_audio(sid, a)),
                     on_text_delta=lambda d: asyncio.create_task(send_text_delta(sid, d)),
                     on_text_done=lambda txt: asyncio.create_task(send_text_done(sid, txt)),
-                    on_error=lambda e: asyncio.create_task(send_err(sid, e))
+                    on_error=lambda e: asyncio.create_task(send_err(sid, e)),
                 )
                 SESSIONS[sid]["client"] = client
                 await client.connect()
@@ -231,7 +264,7 @@ async def ws_voice(ws: WebSocket, sid: str):
 
             elif t == "audio_data":
                 if c := SESSIONS[sid].get("client"):
-                    await c.send_audio(msg.get("data",""))
+                    await c.send_audio(msg.get("data", ""))
 
             elif t == "stop_session":
                 if c := SESSIONS[sid].get("client"):
@@ -239,56 +272,74 @@ async def ws_voice(ws: WebSocket, sid: str):
                     await c.close()
                 break
 
-            elif t == "emotion_hint":
-                # Optional: in future, route this into instructions or logging
-                pass
-
             elif t == "ping":
                 await safe_send(ws, {"type": "pong", "ts": datetime.now().isoformat()})
+
+            elif t == "emotion_hint":
+                # placeholder for emotion hint handling
+                pass
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        await safe_send(ws, {"type":"error","message":str(e)})
+        await safe_send(ws, {"type": "error", "message": str(e)})
     finally:
         await cleanup(sid)
 
+
+# ---------- HELPERS ----------
 async def safe_send(ws: WebSocket, payload: dict):
     try:
         await ws.send_json(payload)
     except Exception:
         pass
 
+
 async def send_audio(sid: str, audio: bytes):
-    s = SESSIONS.get(sid); 
-    if not s: return
+    s = SESSIONS.get(sid)
+    if not s:
+        return
     await safe_send(s["ws"], {"type": "audio_response", "data": audio.hex()})
 
+
 async def send_text_delta(sid: str, delta: str):
-    s = SESSIONS.get(sid);
-    if not s: return
+    s = SESSIONS.get(sid)
+    if not s:
+        return
     await safe_send(s["ws"], {"type": "transcript_delta", "delta": delta})
 
+
 async def send_text_done(sid: str, text: str):
-    s = SESSIONS.get(sid);
-    if not s: return
+    s = SESSIONS.get(sid)
+    if not s:
+        return
     await safe_send(s["ws"], {"type": "transcript", "text": text})
 
+
 async def send_err(sid: str, err: str):
-    s = SESSIONS.get(sid);
-    if not s: return
-    await safe_send(s["ws"], {"type":"error","message":err})
+    s = SESSIONS.get(sid)
+    if not s:
+        return
+    await safe_send(s["ws"], {"type": "error", "message": err})
+
 
 async def cleanup(sid: str):
     s = SESSIONS.pop(sid, None)
-    if not s: return
-    try: await safe_send(s["ws"], {"type":"session_closed"})
-    except Exception: pass
+    if not s:
+        return
+    try:
+        await safe_send(s["ws"], {"type": "session_closed"})
+    except Exception:
+        pass
     if c := s.get("client"):
-        try: await c.close()
-        except Exception: pass
+        try:
+            await c.close()
+        except Exception:
+            pass
 
-# Local run
+
+# ---------- LOCAL RUN ----------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("mindful_plus_backend:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
