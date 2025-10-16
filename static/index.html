@@ -413,7 +413,34 @@
       try {
         const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
         const samples = bytes.length / 2;
+
         const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+        let bufferQueue = [];
+        let playing = false;
+        
+        function playPCM16Hex(hex) {
+          const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+          const samples = bytes.length / 2;
+          const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
+          const ch = buf.getChannelData(0);
+          const dv = new DataView(bytes.buffer);
+          for (let i = 0; i < samples; i++) {
+            const v = dv.getInt16(i*2, true);
+            ch[i] = v / 0x8000;
+          }
+          bufferQueue.push(buf);
+          if (!playing) playNext();
+        }
+        
+        function playNext() {
+          if (!bufferQueue.length) { playing = false; return; }
+          playing = true;
+          const src = ctx2.createBufferSource();
+          src.buffer = bufferQueue.shift();
+          src.connect(ctx2.destination);
+          src.onended = playNext;
+          src.start();
+}
         const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
         const ch = buf.getChannelData(0);
         const dv = new DataView(bytes.buffer);
