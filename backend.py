@@ -19,9 +19,9 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     REALTIME_MODEL = os.getenv("REALTIME_MODEL", "gpt-4o-realtime-preview-2024-12-17")
     REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={REALTIME_MODEL}"
-    VOICE = "alloy"
+    VOICE = "verse"
     INPUT_AUDIO_FORMAT = "pcm16"
-    OUTPUT_AUDIO_FORMAT = "pcm16"
+    OUTPUT_AUDIO_FORMAT = "wav"
     SYSTEM_PROMPT = (
         "You are Mindful+, a calm, supportive voice companion. "
         "Speak warmly in simple English, 2–3 sentences. Offer gentle grounding or breathing when useful. "
@@ -148,6 +148,10 @@ class RealtimeClient:
     async def send_audio(self, audio_b64: str):
         await self.ready.wait()
         await self._send({"type": "input_audio_buffer.append", "audio": audio_b64})
+        # Commit after each short burst for faster recognition
+        await self._send({"type": "input_audio_buffer.commit"})
+        await self._send({"type": "response.create", "response": {"modalities": ["audio", "text"]}})
+
 
     async def commit(self):
         await self._send({"type": "input_audio_buffer.commit"})
