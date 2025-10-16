@@ -104,7 +104,7 @@ class RealtimeClient:
                 "input_audio_transcription": {"model": "whisper-1"},
                 "turn_detection": {
                     "type": "server_vad",
-                    "silence_duration_ms": 650,
+                    "silence_duration_ms": 1200,
                     "prefix_padding_ms": 250,
                     "create_response": True
                 },
