@@ -21,7 +21,7 @@ class Config:
     REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={REALTIME_MODEL}"
     VOICE = "verse"
     INPUT_AUDIO_FORMAT = "pcm16"
-    OUTPUT_AUDIO_FORMAT = "wav"
+    OUTPUT_AUDIO_FORMAT = "pcm16"
     SYSTEM_PROMPT = (
         "You are Mindful+, a calm, supportive voice companion. "
         "Speak warmly in simple English, 2–3 sentences. Offer gentle grounding or breathing when useful. "
@@ -154,8 +154,17 @@ class RealtimeClient:
 
 
     async def commit(self):
-        await self._send({"type": "input_audio_buffer.commit"})
-        await self._send({"type": "response.create", "response": {"modalities": ["audio","text"]}})
+    if self.response_in_progress:
+        log.warning("Skipped commit: response already active")
+        return
+    if len(self.audio_buf) < 3200:
+        log.warning("Skipped commit: buffer too small")
+        return
+    self.response_in_progress = True
+    await self._send({"type": "input_audio_buffer.commit"})
+    await self._send({"type": "response.create", "response": {"modalities": ["audio","text"]}})
+    self.response_in_progress = False
+
 
     async def close(self):
         try:
