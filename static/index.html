@@ -201,268 +201,263 @@
 
   <script>
     // --------- Theme ---------
-    const root = document.getElementById('root');
-    const themeBtn = document.getElementById('theme');
-    const savedTheme = localStorage.getItem('mindful_theme') || 'light';
-    if (savedTheme === 'dark') root.setAttribute('data-theme', 'dark');
-    themeBtn.onclick = () => {
-      const dark = root.getAttribute('data-theme') === 'dark';
-      if (dark) root.removeAttribute('data-theme');
-      else root.setAttribute('data-theme', 'dark');
-      localStorage.setItem('mindful_theme', dark ? 'light' : 'dark');
-    };
+const root = document.getElementById('root');
+const themeBtn = document.getElementById('theme');
+const savedTheme = localStorage.getItem('mindful_theme') || 'light';
+if (savedTheme === 'dark') root.setAttribute('data-theme', 'dark');
+themeBtn.onclick = () => {
+  const dark = root.getAttribute('data-theme') === 'dark';
+  if (dark) root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', 'dark');
+  localStorage.setItem('mindful_theme', dark ? 'light' : 'dark');
+};
 
-    // --------- Elements ---------
-    const chat = document.getElementById('chat');
-    const input = document.getElementById('input');
-    const sendBtn = document.getElementById('send');
-    const micBtn = document.getElementById('mic');
-    const dot = document.getElementById('dot');
-    const stat = document.getElementById('stat');
-    const typing = document.getElementById('typing');
-    const scrollBtn = document.getElementById('scrollBtn');
-    const modeLabel = document.getElementById('modeLabel');
+// --------- Elements ---------
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const micBtn = document.getElementById('mic');
+const dot = document.getElementById('dot');
+const stat = document.getElementById('stat');
+const typing = document.getElementById('typing');
+const scrollBtn = document.getElementById('scrollBtn');
+const modeLabel = document.getElementById('modeLabel');
 
-    const CONFIG = {
-      API_BASE: window.location.origin,
-      WS_BASE: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host,
-      MAX_LEN: 1000,
-      HEARTBEAT_MS: 20000
-    };
+const CONFIG = {
+  API_BASE: window.location.origin,
+  WS_BASE: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host,
+  MAX_LEN: 1000,
+  HEARTBEAT_MS: 20000
+};
 
-    let recording = false, ac = null, micStream = null, srcNode = null, proc = null, analyser = null, dataArray = null;
-    let ws = null, sessionId = null, heartbeat = null;
-    let partialNode = null; // live partial transcript node
+let recording = false, ac = null, micStream = null, srcNode = null, proc = null, analyser = null, dataArray = null;
+let ws = null, sessionId = null, heartbeat = null;
+let partialNode = null; // live partial transcript node
 
-    function setStatus(cls, text) { dot.className = 'dot ' + cls; stat.textContent = text; }
-    function now() {
-      const d = new Date();
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
+// Global audio context for playback
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+let bufferQueue = [];
+let playing = false;
 
-    function addMsg(role, text, isPartial=false) {
-      if (isPartial) {
-        if (!partialNode) {
-          const wrap = document.createElement('div'); wrap.className = 'msg assistant';
-          const bubble = document.createElement('div'); bubble.className = 'bubble';
-          wrap.appendChild(bubble);
-          chat.appendChild(wrap);
-          partialNode = bubble;
-        }
-        partialNode.textContent = '🔊 ' + text;
-        chat.scrollTop = chat.scrollHeight;
-        return;
-      }
-
-      const wrap = document.createElement('div');
-      wrap.className = 'msg ' + (role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'sys');
-      const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = text;
-      wrap.appendChild(bubble);
-
-      const time = document.createElement('div'); time.className = 'timestamp'; time.textContent = now();
-      wrap.appendChild(time);
-
-      chat.appendChild(wrap);
-      partialNode = null;
-      chat.scrollTop = chat.scrollHeight;
-    }
-
-    // scroll-to-bottom visibility
-    chat.addEventListener('scroll', () => {
-      const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60;
-      scrollBtn.classList.toggle('show', !nearBottom);
-    });
-    scrollBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
-
-    // Auto-resize textarea
-    input.addEventListener('input', function(){
-      this.style.height = 'auto';
-      this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-    });
-
-    // Send text
-    input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
-    });
-    sendBtn.onclick = doSend;
-
-    async function doSend() {
-      const msg = input.value.trim();
-      if (!msg) return;
-      if (msg.length > CONFIG.MAX_LEN) { addMsg('sys', 'Message too long.'); return; }
-      addMsg('user', msg);
-      input.value = ''; input.style.height = '44px';
-      typing.classList.add('show');
-
-      try {
-        const res = await fetch(CONFIG.API_BASE + '/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: msg, context: '' })
-        });
-        const data = await res.json();
-        typing.classList.remove('show');
-        if (data.success) addMsg('assistant', data.response);
-        else addMsg('sys', 'Failed to get response.');
-      } catch (err) {
-        typing.classList.remove('show');
-        addMsg('sys', 'Network error.');
-      }
-    }
-
-    // Voice
-    micBtn.onclick = () => (recording ? stopVoice() : startVoice());
-
-    async function startVoice() {
-      try {
-        micBtn.classList.add('active'); micBtn.title = 'Stop voice'; micBtn.innerHTML = '<span class="mic-ring"></span>⏹';
-        setStatus('connecting', 'Connecting...');
-        modeLabel.textContent = 'Voice mode';
-
-        sessionId = 'session_' + Date.now().toString(36);
-        ws = new WebSocket(`${CONFIG.WS_BASE}/ws/voice/${sessionId}`);
-
-        ws.onopen = async () => {
-          setStatus('connected', 'Listening...');
-          ws.send(JSON.stringify({ type: 'start_session' }));
-          startHeartbeat();
-
-          ac = new (window.AudioContext || window.webkitAudioContext)();
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          });
-          srcNode = ac.createMediaStreamSource(micStream);
-          analyser = ac.createAnalyser(); analyser.fftSize = 1024;
-          dataArray = new Uint8Array(analyser.frequencyBinCount);
-          srcNode.connect(analyser);
-
-          proc = ac.createScriptProcessor(8192, 1, 1);
-          srcNode.connect(proc); proc.connect(ac.destination);
-          proc.onaudioprocess = (e) => {
-            const input = e.inputBuffer.getChannelData(0);
-            // emotion hint proxy (very rough): compute RMS
-            let rms = 0; for (let i = 0; i < input.length; i++) rms += input[i]*input[i];
-            rms = Math.sqrt(rms / input.length);
-            if (rms < 0.01) return; // skip silence
-            // could send occasional hint
-            if (Math.random() < 0.02 && ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'emotion_hint', data: { rms } }));
-            }
-
-            const pcm16 = new Int16Array(input.length);
-            for (let i = 0; i < input.length; i++) {
-              const s = Math.max(-1, Math.min(1, input[i]));
-              pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-            }
-            const bytes = new Uint8Array(pcm16.buffer);
-            let binary = ''; const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk)
-              binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-            if (ws && ws.readyState === WebSocket.OPEN)
-              ws.send(JSON.stringify({ type: 'audio_data', data: btoa(binary) }));
-          };
-
-          recording = true;
-        };
-
-        ws.onmessage = (ev) => {
-          const data = JSON.parse(ev.data);
-          if (data.type === 'transcript_delta') addMsg('assistant', data.delta, true);
-          if (data.type === 'transcript') addMsg('assistant', '🔊 ' + data.text);
-          if (data.type === 'audio_response') playPCM16Hex(data.data);
-          if (data.type === 'error') addMsg('sys', 'Voice error: ' + data.message);
-          if (data.type === 'session_closed') setStatus('', 'Disconnected');
-        };
-
-        ws.onclose = () => {
-          setStatus('', 'Disconnected');
-          stopHeartbeat();
-        };
-
-      } catch (err) {
-        addMsg('sys', 'Mic/WebSocket error: ' + err.message);
-        cleanupAudio();
-        micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
-        modeLabel.textContent = '';
-        setStatus('', 'Disconnected');
-      }
-    }
-
-    function stopVoice() {
-      if (!recording) return;
-      recording = false;
-      micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
-      modeLabel.textContent = '';
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'stop_session' }));
-        setTimeout(() => { try { ws.close(); } catch(e){} }, 400);
-      }
-      stopHeartbeat();
-      cleanupAudio();
-      setStatus('', 'Disconnected');
-    }
-
-    function cleanupAudio() {
-      if (proc) { try{proc.disconnect()}catch{}; proc = null; }
-      if (srcNode) { try{srcNode.disconnect()}catch{}; srcNode = null; }
-      if (micStream) { try{micStream.getTracks().forEach(t=>t.stop())}catch{}; micStream = null; }
-      if (ac) { try{ac.close()}catch{}; ac = null; }
-    }
-
-    function playPCM16Hex(hex) {
-      try {
-        const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
-        const samples = bytes.length / 2;
-
-        const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
-        let bufferQueue = [];
-        let playing = false;
-        
-        function playPCM16Hex(hex) {
-          const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
-          const samples = bytes.length / 2;
-          const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
-          const ch = buf.getChannelData(0);
-          const dv = new DataView(bytes.buffer);
-          for (let i = 0; i < samples; i++) {
-            const v = dv.getInt16(i*2, true);
-            ch[i] = v / 0x8000;
-          }
-          bufferQueue.push(buf);
-          if (!playing) playNext();
-        }
-        
-        function playNext() {
-          if (!bufferQueue.length) { playing = false; return; }
-          playing = true;
-          const src = ctx2.createBufferSource();
-          src.buffer = bufferQueue.shift();
-          src.connect(ctx2.destination);
-          src.onended = playNext;
-          src.start();
+function setStatus(cls, text) { dot.className = 'dot ' + cls; stat.textContent = text; }
+function now() {
+  const d = new Date();
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
-        const buf = ctx2.createBuffer(1, samples, ctx2.sampleRate);
-        const ch = buf.getChannelData(0);
-        const dv = new DataView(bytes.buffer);
-        for (let i = 0; i < samples; i++) {
-          const v = dv.getInt16(i*2, true);
-          ch[i] = v / 0x8000;
-        }
-        const src = ctx2.createBufferSource();
-        src.buffer = buf; src.connect(ctx2.destination); src.start();
-      } catch(e){}
-    }
 
-    function startHeartbeat() {
+function addMsg(role, text, isPartial = false) {
+  if (isPartial) {
+    if (!partialNode) {
+      const wrap = document.createElement('div'); wrap.className = 'msg assistant';
+      const bubble = document.createElement('div'); bubble.className = 'bubble';
+      wrap.appendChild(bubble);
+      chat.appendChild(wrap);
+      partialNode = bubble;
+    }
+    partialNode.textContent = '🔊 ' + text;
+    chat.scrollTop = chat.scrollHeight;
+    return;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + (role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'sys');
+  const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = text;
+  wrap.appendChild(bubble);
+
+  const time = document.createElement('div'); time.className = 'timestamp'; time.textContent = now();
+  wrap.appendChild(time);
+
+  chat.appendChild(wrap);
+  partialNode = null;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// scroll-to-bottom visibility
+chat.addEventListener('scroll', () => {
+  const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60;
+  scrollBtn.classList.toggle('show', !nearBottom);
+});
+scrollBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+
+// Auto-resize textarea
+input.addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+});
+
+// Send text
+input.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+});
+sendBtn.onclick = doSend;
+
+async function doSend() {
+  const msg = input.value.trim();
+  if (!msg) return;
+  if (msg.length > CONFIG.MAX_LEN) { addMsg('sys', 'Message too long.'); return; }
+  addMsg('user', msg);
+  input.value = ''; input.style.height = '44px';
+  typing.classList.add('show');
+
+  try {
+    const res = await fetch(CONFIG.API_BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: msg, context: '' })
+    });
+    const data = await res.json();
+    typing.classList.remove('show');
+    if (data.success) addMsg('assistant', data.response);
+    else addMsg('sys', 'Failed to get response.');
+  } catch (err) {
+    typing.classList.remove('show');
+    addMsg('sys', 'Network error.');
+  }
+}
+
+// Voice
+micBtn.onclick = () => (recording ? stopVoice() : startVoice());
+
+async function startVoice() {
+  try {
+    micBtn.classList.add('active'); micBtn.title = 'Stop voice'; micBtn.innerHTML = '<span class="mic-ring"></span>⏹';
+    setStatus('connecting', 'Connecting...');
+    modeLabel.textContent = 'Voice mode';
+
+    sessionId = 'session_' + Date.now().toString(36);
+    ws = new WebSocket(`${CONFIG.WS_BASE}/ws/voice/${sessionId}`);
+
+    ws.onopen = async () => {
+      setStatus('connected', 'Listening...');
+      ws.send(JSON.stringify({ type: 'start_session' }));
+      startHeartbeat();
+
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      srcNode = ac.createMediaStreamSource(micStream);
+      analyser = ac.createAnalyser(); analyser.fftSize = 1024;
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
+      srcNode.connect(analyser);
+
+      proc = ac.createScriptProcessor(4096, 1, 1);
+      srcNode.connect(proc); proc.connect(ac.destination);
+      proc.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        let rms = 0; for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+        rms = Math.sqrt(rms / input.length);
+        if (rms < 0.01) return;
+
+        const pcm16 = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        const bytes = new Uint8Array(pcm16.buffer);
+        let binary = ''; const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk)
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+
+        if (ws && ws.readyState === WebSocket.OPEN)
+          ws.send(JSON.stringify({ type: 'audio_data', data: btoa(binary) }));
+      };
+
+      recording = true;
+    };
+
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'transcript_delta') addMsg('assistant', data.delta, true);
+      if (data.type === 'transcript') addMsg('assistant', '🔊 ' + data.text);
+      if (data.type === 'audio_response') playPCM16Hex(data.data);
+      if (data.type === 'error') addMsg('sys', 'Voice error: ' + data.message);
+      if (data.type === 'session_closed') setStatus('', 'Disconnected');
+    };
+
+    ws.onclose = () => {
+      setStatus('', 'Disconnected');
       stopHeartbeat();
-      heartbeat = setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-      }, CONFIG.HEARTBEAT_MS);
+    };
+
+  } catch (err) {
+    addMsg('sys', 'Mic/WebSocket error: ' + err.message);
+    cleanupAudio();
+    micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
+    modeLabel.textContent = '';
+    setStatus('', 'Disconnected');
+  }
+}
+
+function stopVoice() {
+  if (!recording) return;
+  recording = false;
+  micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
+  modeLabel.textContent = '';
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'stop_session' }));
+    setTimeout(() => { try { ws.close(); } catch (e) { } }, 400);
+  }
+  stopHeartbeat();
+  cleanupAudio();
+  setStatus('', 'Disconnected');
+}
+
+function cleanupAudio() {
+  if (proc) { try { proc.disconnect() } catch { } proc = null; }
+  if (srcNode) { try { srcNode.disconnect() } catch { } srcNode = null; }
+  if (micStream) { try { micStream.getTracks().forEach(t => t.stop()) } catch { } micStream = null; }
+  if (ac) { try { ac.close() } catch { } ac = null; }
+}
+
+// --- Smoothed, buffered playback ---
+function playPCM16Hex(hex) {
+  try {
+    const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+    const samples = bytes.length / 2;
+    const buf = ctx.createBuffer(1, samples, ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    const dv = new DataView(bytes.buffer);
+    for (let i = 0; i < samples; i++) {
+      const v = dv.getInt16(i * 2, true);
+      ch[i] = v / 0x8000;
     }
-    function stopHeartbeat() {
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-    }
+    bufferQueue.push(buf);
+    if (!playing) playNext();
+  } catch (e) {
+    console.error('Playback error:', e);
+  }
+}
+
+function playNext() {
+  if (!bufferQueue.length) { playing = false; return; }
+  playing = true;
+  const src = ctx.createBufferSource();
+  src.buffer = bufferQueue.shift();
+
+  // Fade in/out for smoother voice
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05);
+  gain.gain.linearRampToValueAtTime(0.85, ctx.currentTime + 0.15);
+
+  src.connect(gain).connect(ctx.destination);
+  src.onended = playNext;
+  src.start();
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeat = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
+  }, CONFIG.HEARTBEAT_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeat) clearInterval(heartbeat);
+  heartbeat = null;
+}
+
   </script>
 </body>
 </html>
