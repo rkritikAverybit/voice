@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
@@ -29,7 +28,7 @@ class Config:
     VOICE = "alloy"
     INPUT_AUDIO_FORMAT = "pcm16"
     OUTPUT_AUDIO_FORMAT = "pcm16"
-    SAMPLE_RATE = 24000  # OpenAI expects 24kHz
+    SAMPLE_RATE = 24000
     
     SYSTEM_PROMPT = (
         "You are Mindful+, a calm, supportive voice companion. "
@@ -53,7 +52,6 @@ class ChatResponse(BaseModel):
     response: str
     timestamp: str
 
-# Simple in-memory memory (for demo)
 MEMORY: List[Dict[str, str]] = []
 
 # ---------- OPENAI SERVICE ----------
@@ -103,7 +101,7 @@ class RealtimeClient:
         self.ready = asyncio.Event()
         self.response_in_progress = False
         self.last_commit_time = 0
-        self.commit_cooldown = 0.5  # seconds
+        self.commit_cooldown = 0.5
 
     async def connect(self):
         headers = {
@@ -133,11 +131,11 @@ class RealtimeClient:
                     "turn_detection": {
                         "type": "server_vad",
                         "threshold": 0.5,
-                        "silence_duration_ms": 1500,  # FIXED: Increased for better turn detection
+                        "silence_duration_ms": 1500,
                         "prefix_padding_ms": 300,
                         "create_response": True,
                     },
-                    "temperature": 0.7,
+                    "temperature": 0.8,
                     "max_response_output_tokens": 2048,
                 },
             })
@@ -205,10 +203,8 @@ class RealtimeClient:
         await self._send({"type": "input_audio_buffer.append", "audio": audio_b64})
 
     async def commit(self):
-        """FIXED: Proper commit logic without incorrect buffer check."""
         current_time = asyncio.get_event_loop().time()
         
-        # Cooldown to prevent rapid commits
         if current_time - self.last_commit_time < self.commit_cooldown:
             log.debug(f"[{self.sid}] Commit cooldown active")
             return
@@ -241,7 +237,7 @@ class RealtimeClient:
 
 # ---------- FASTAPI APP ----------
 Config.validate()
-app = FastAPI(title="Mindful+ API", version="2.0.0")
+app = FastAPI(title="Mindful+ Voice API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -251,18 +247,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Sessions storage
 SESSIONS: Dict[str, Dict] = {}
 svc = OpenAIService()
 
 @app.get("/")
 async def root():
     """Serve the frontend HTML."""
-    return FileResponse("static/index.html")
+    return FileResponse("index.html")
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint."""
     return {
         "status": "healthy", 
         "sessions": len(SESSIONS), 
@@ -271,7 +265,6 @@ async def health():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(m: ChatMessage):
-    """Text chat endpoint."""
     try:
         text = await svc.text_reply(m.content, m.context)
         return ChatResponse(
@@ -282,10 +275,8 @@ async def chat(m: ChatMessage):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ---------- WebSocket for voice ----------
 @app.websocket("/ws/voice/{sid}")
 async def ws_voice(ws: WebSocket, sid: str):
-    """WebSocket endpoint for voice communication."""
     await ws.accept()
     SESSIONS[sid] = {"ws": ws, "client": None, "connected": datetime.now()}
     await safe_send(ws, {"type": "connected", "session_id": sid})
@@ -330,10 +321,6 @@ async def ws_voice(ws: WebSocket, sid: str):
             
             elif t == "ping":
                 await safe_send(ws, {"type": "pong", "ts": datetime.now().isoformat()})
-            
-            elif t == "emotion_hint":
-                # Placeholder for emotion hint handling
-                pass
                 
     except WebSocketDisconnect:
         log.info(f"Client disconnected: {sid}")
@@ -343,44 +330,37 @@ async def ws_voice(ws: WebSocket, sid: str):
     finally:
         await cleanup(sid)
 
-# ---------- HELPERS ----------
 async def safe_send(ws: WebSocket, payload: dict):
-    """Safely send JSON over WebSocket."""
     try:
         await ws.send_json(payload)
     except Exception as e:
         log.debug(f"Failed to send: {e}")
 
 async def send_audio(sid: str, audio: bytes):
-    """Send audio response to client."""
     s = SESSIONS.get(sid)
     if not s:
         return
     await safe_send(s["ws"], {"type": "audio_response", "data": audio.hex()})
 
 async def send_text_delta(sid: str, delta: str):
-    """Send transcript delta to client."""
     s = SESSIONS.get(sid)
     if not s:
         return
     await safe_send(s["ws"], {"type": "transcript_delta", "delta": delta})
 
 async def send_text_done(sid: str, text: str):
-    """Send complete transcript to client."""
     s = SESSIONS.get(sid)
     if not s:
         return
     await safe_send(s["ws"], {"type": "transcript", "text": text})
 
 async def send_err(sid: str, err: str):
-    """Send error message to client."""
     s = SESSIONS.get(sid)
     if not s:
         return
     await safe_send(s["ws"], {"type": "error", "message": err})
 
 async def cleanup(sid: str):
-    """Cleanup session resources."""
     s = SESSIONS.pop(sid, None)
     if not s:
         return
@@ -398,7 +378,6 @@ async def cleanup(sid: str):
     
     log.info(f"✅ Cleaned up session: {sid}")
 
-# ---------- LOCAL RUN ----------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
