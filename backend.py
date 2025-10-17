@@ -258,7 +258,7 @@ svc = OpenAIService()
 @app.get("/")
 async def root():
     """Serve the frontend HTML."""
-    return FileResponse("index.html")
+    return FileResponse("static/index.html")
 
 @app.get("/api/health")
 async def health():
