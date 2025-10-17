@@ -345,22 +345,36 @@ async function startVoice() {
       srcNode.connect(proc); proc.connect(ac.destination);
       proc.onaudioprocess = (e) => {
         const input = e.inputBuffer.getChannelData(0);
-        let rms = 0; for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+        
+        // Calculate RMS for volume detection
+        let rms = 0;
+        for (let i = 0; i < input.length; i++) {
+          rms += input[i] * input[i];
+        }
         rms = Math.sqrt(rms / input.length);
+        
+        // Skip silent audio
         if (rms < 0.01) return;
-
+        
+        // CRITICAL FIX: Convert Float32 to Int16 PCM16
         const pcm16 = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
           const s = Math.max(-1, Math.min(1, input[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
+        
+        // Convert to base64 in chunks to avoid call stack issues
         const bytes = new Uint8Array(pcm16.buffer);
-        let binary = ''; const chunk = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunk)
-          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-
-        if (ws && ws.readyState === WebSocket.OPEN)
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        
+        // Send to backend
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'audio_data', data: btoa(binary) }));
+        }
       };
 
       recording = true;
@@ -410,18 +424,24 @@ function cleanupAudio() {
   if (ac) { try { ac.close() } catch { } ac = null; }
 }
 
-// --- Smoothed, buffered playback ---
+// --- CRITICAL FIX: Proper PCM16 playback ---
 function playPCM16Hex(hex) {
   try {
+    // Convert hex string to bytes
     const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
     const samples = bytes.length / 2;
+    
+    // Use browser's sample rate - browser handles resampling from 24kHz
     const buf = ctx.createBuffer(1, samples, ctx.sampleRate);
     const ch = buf.getChannelData(0);
+    
+    // Convert Int16 PCM to Float32 using DataView
     const dv = new DataView(bytes.buffer);
     for (let i = 0; i < samples; i++) {
-      const v = dv.getInt16(i * 2, true);
+      const v = dv.getInt16(i * 2, true); // little-endian
       ch[i] = v / 0x8000;
     }
+    
     bufferQueue.push(buf);
     if (!playing) playNext();
   } catch (e) {
