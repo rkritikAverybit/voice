@@ -110,7 +110,10 @@ class OpenAIService:
             )
             text = resp.choices[0].message.content
             MEMORY.extend([{"role": "user", "content": msg}, {"role": "assistant", "content": text}])
-            del MEMORY[:-10] if len(MEMORY) > 10 else None
+            #del MEMORY[:-10] if len(MEMORY) > 10 else None
+            if len(MEMORY) > 10:
+                del MEMORY[:-10]
+
             return text
         except Exception as e:
             log.error(f"Text API error: {e}")
