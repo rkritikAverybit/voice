@@ -175,6 +175,7 @@
         startHeartbeat();
 
         ac = new (window.AudioContext || window.webkitAudioContext)();
+        await ac.resume();
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false }
         });
@@ -183,11 +184,17 @@
         src.connect(proc); proc.connect(ac.destination);
 
         // Capture and send PCM16 in small chunks for realtime feel
+
+
         proc.onaudioprocess = (e) => {
-          const ch = e.inputBuffer.getChannelData(0);
-          // Skip silence via RMS
-          let rms = 0; for (let i=0;i<ch.length;i++) rms += ch[i]*ch[i];
-          rms = Math.sqrt(rms / ch.length); if (rms < 0.01) return;
+          const input = e.inputBuffer.getChannelData(0);
+          let rms = 0;
+          for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+          rms = Math.sqrt(rms / input.length);
+          if (rms < 0.01) return;
+          console.log("🎤 sending chunk RMS:", rms.toFixed(3));
+        };
+
 
           const pcm16 = new Int16Array(ch.length);
           for (let i=0;i<ch.length;i++){
@@ -199,6 +206,7 @@
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunkSize));
           }
           if (ws && ws.readyState === WebSocket.OPEN){
+            console.log("📤 sending chunk to backend");
             ws.send(JSON.stringify({ type: 'audio_data', data: btoa(binary) }));
           }
         };
