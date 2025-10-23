@@ -1,326 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🪷 Mindful+ — Chat & Voice</title>
-  <style>
-    :root {
-      /* Calm palette (light) */
-      --bg: #f3f7f6;
-      --card: #ffffff;
-      --text: #0b1721;
-      --muted: #5c6b73;
-      --primary: #2aa198;      /* teal */
-      --primary-2: #3b82f6;     /* soft blue accent */
-      --ring: rgba(42, 161, 152, 0.25);
-      --shadow: 0 12px 40px rgba(8, 24, 38, 0.12);
-      --grad: linear-gradient(135deg, #87ceeb 0%, #2aa198 100%);
-    }
-    [data-theme="dark"] {
-      --bg: #0e1419;
-      --card: #111a21;
-      --text: #dbe2e7;
-      --muted: #9aa7b0;
-      --primary: #35c2b8;
-      --primary-2: #60a5fa;
-      --ring: rgba(53, 194, 184, 0.25);
-      --shadow: 0 12px 40px rgba(0,0,0,0.45);
-      --grad: linear-gradient(135deg, #1e293b 0%, #0ea5a5 100%);
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; }
-    body {
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 20px;
-    }
-    .container { max-width: 900px; margin: 0 auto; }
-
-    header {
-      background: var(--card);
-      border-radius: 18px;
-      padding: 18px 20px;
-      margin-bottom: 20px;
-      box-shadow: var(--shadow);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .brand {
-      display: flex; align-items: center; gap: 12px;
-      background: var(--grad);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      color: transparent;
-      font-weight: 800;
-      font-size: 1.6rem;
-    }
-    .status-pill {
-      display: flex; align-items: center; gap: 10px;
-      background: rgba(127, 140, 141, 0.12);
-      padding: 8px 14px; border-radius: 999px;
-      color: var(--muted);
-    }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; }
-    .dot.connecting { background: #f59e0b; animation: pulse 1.2s infinite; }
-    .dot.connected { background: #10b981; animation: pulse 2s infinite; }
-
-    .theme-toggle {
-      border: none; border-radius: 12px; padding: 8px 12px;
-      background: rgba(127, 140, 141, 0.12);
-      color: var(--text); cursor: pointer; font-weight: 600;
-    }
-
-    section.card {
-      background: var(--card);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: var(--shadow);
-    }
-
-    .chat {
-      height: 520px; overflow: auto; background: rgba(127,140,141,0.08);
-      border-radius: 14px; padding: 14px; margin-top: 8px; position: relative;
-    }
-    .msg { margin: 8px 0; display: flex; }
-    .msg .bubble {
-      display: inline-block; padding: 10px 14px; border-radius: 16px;
-      max-width: 78%; line-height: 1.5; position: relative; animation: slideIn .2s ease;
-    }
-    .msg.user { justify-content: flex-end; }
-    .msg.user .bubble {
-      background: var(--grad); color: white; border-bottom-right-radius: 6px;
-    }
-    .msg.assistant .bubble {
-      background: rgba(127,140,141,0.18); color: var(--text);
-      border-bottom-left-radius: 6px;
-    }
-    .timestamp {
-      font-size: 0.72rem; color: var(--muted); margin-top: 4px;
-    }
-    .typing {
-      position: absolute; left: 14px; bottom: 10px; font-size: 0.9rem;
-      color: var(--muted); display: none; align-items: center; gap: 8px;
-    }
-    .typing.show { display: flex; }
-    .typing .dots span {
-      display:inline-block; width:6px; height:6px; border-radius:999px; background: var(--muted);
-      margin-right:3px; animation: blink 1.4s infinite;
-    }
-    .typing .dots span:nth-child(2){ animation-delay: .2s; }
-    .typing .dots span:nth-child(3){ animation-delay: .4s; }
-
-    .chat-input {
-      display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin-top: 10px;
-      align-items: center;
-    }
-    textarea {
-      border: 2px solid rgba(127,140,141,0.25);
-      background: transparent; color: var(--text);
-      border-radius: 12px; padding: 12px; resize: none; font: inherit;
-      min-height: 44px; max-height: 160px; overflow: auto;
-    }
-    button.icon {
-      border: none; border-radius: 12px; cursor: pointer; font-weight: 700;
-    }
-    .send { padding: 12px 16px; background: var(--grad); color: white; }
-    .mic {
-      position: relative; width: 48px; height: 48px;
-      background: rgba(127,140,141,0.15); color: var(--text);
-      display: grid; place-items: center;
-    }
-    .mic-ring {
-      position: absolute; inset: -6px; border-radius: 999px;
-      border: 3px solid transparent;
-    }
-    .mic.active { color: #b91c1c; background: rgba(239,68,68,0.12); }
-    .mic.active .mic-ring {
-      border-color: var(--ring);
-      animation: ringPulse 1.5s ease-in-out infinite;
-    }
-
-    .scroll-bottom {
-      position: absolute; right: 12px; bottom: 12px;
-      background: var(--card); color: var(--text);
-      border: 1px solid rgba(127,140,141,0.25);
-      padding: 6px 10px; border-radius: 999px; cursor: pointer; display: none;
-      box-shadow: var(--shadow);
-      font-size: 0.85rem;
-    }
-    .scroll-bottom.show { display: block; }
-
-    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
-    @keyframes slideIn { from{ opacity: 0; transform: translateY(6px);} to{opacity:1; transform: translateY(0);} }
-    @keyframes blink { 0%,80%,100%{ opacity: .2 } 40%{ opacity: 1 } }
-    @keyframes ringPulse {
-      0% { box-shadow: 0 0 0 0 var(--ring); }
-      70% { box-shadow: 0 0 0 12px transparent; }
-      100% { box-shadow: 0 0 0 0 transparent; }
-    }
-  </style>
-</head>
-<body>
-  <div class="container" id="root">
-    <header>
-      <div class="brand">🪷 Mindful+</div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <button id="theme" class="theme-toggle" title="Toggle theme">🌓</button>
-        <div class="status-pill"><span id="dot" class="dot"></span><span id="stat">Disconnected</span></div>
-      </div>
-    </header>
-
-    <section class="card">
-      <div style="display:flex; align-items:center; justify-content:space-between;">
-        <h3>Chat & Voice</h3>
-        <small id="modeLabel" style="color:var(--muted)"></small>
-      </div>
-
-      <div id="chat" class="chat">
-        <div class="msg assistant">
-          <div class="bubble">Welcome to Mindful+. How are you feeling today?</div>
-        </div>
-        <div id="typing" class="typing">
-          <span>Mindful is responding</span>
-          <div class="dots"><span></span><span></span><span></span></div>
-        </div>
-        <button id="scrollBtn" class="scroll-bottom">⬇ Scroll</button>
-      </div>
-
-      <div class="chat-input">
-        <textarea id="input" rows="1" placeholder="Type your message..."></textarea>
-        <button id="send" class="icon send">➤</button>
-        <button id="mic" class="icon mic" title="Start voice"><span class="mic-ring"></span>🎙️</button>
-      </div>
-    </section>
-  </div>
-
-  <script>
-    // --------- Theme ---------
-const root = document.getElementById('root');
-const themeBtn = document.getElementById('theme');
-const savedTheme = localStorage.getItem('mindful_theme') || 'light';
-if (savedTheme === 'dark') root.setAttribute('data-theme', 'dark');
-themeBtn.onclick = () => {
-  const dark = root.getAttribute('data-theme') === 'dark';
-  if (dark) root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', 'dark');
-  localStorage.setItem('mindful_theme', dark ? 'light' : 'dark');
-};
-
-// --------- Elements ---------
-const chat = document.getElementById('chat');
-const input = document.getElementById('input');
-const sendBtn = document.getElementById('send');
-const micBtn = document.getElementById('mic');
-const dot = document.getElementById('dot');
-const stat = document.getElementById('stat');
-const typing = document.getElementById('typing');
-const scrollBtn = document.getElementById('scrollBtn');
-const modeLabel = document.getElementById('modeLabel');
-
-const CONFIG = {
-  API_BASE: window.location.origin,
-  WS_BASE: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host,
-  MAX_LEN: 1000,
-  HEARTBEAT_MS: 20000
-};
-
-let recording = false, ac = null, micStream = null, srcNode = null, proc = null, analyser = null, dataArray = null;
-let ws = null, sessionId = null, heartbeat = null;
-let partialNode = null; // live partial transcript node
-
-// Global audio context for playback
-const ctx = new (window.AudioContext || window.webkitAudioContext)();
-let bufferQueue = [];
-let playing = false;
-
-function setStatus(cls, text) { dot.className = 'dot ' + cls; stat.textContent = text; }
-function now() {
-  const d = new Date();
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function addMsg(role, text, isPartial = false) {
-  if (isPartial) {
-    if (!partialNode) {
-      const wrap = document.createElement('div'); wrap.className = 'msg assistant';
-      const bubble = document.createElement('div'); bubble.className = 'bubble';
-      wrap.appendChild(bubble);
-      chat.appendChild(wrap);
-      partialNode = bubble;
-    }
-    partialNode.textContent = '🔊 ' + text;
-    chat.scrollTop = chat.scrollHeight;
-    return;
-  }
-
-  const wrap = document.createElement('div');
-  wrap.className = 'msg ' + (role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'sys');
-  const bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = text;
-  wrap.appendChild(bubble);
-
-  const time = document.createElement('div'); time.className = 'timestamp'; time.textContent = now();
-  wrap.appendChild(time);
-
-  chat.appendChild(wrap);
-  partialNode = null;
-  chat.scrollTop = chat.scrollHeight;
-}
-
-// scroll-to-bottom visibility
-chat.addEventListener('scroll', () => {
-  const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60;
-  scrollBtn.classList.toggle('show', !nearBottom);
-});
-scrollBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
-
-// Auto-resize textarea
-input.addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-});
-
-// Send text
-input.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
-});
-sendBtn.onclick = doSend;
-
-async function doSend() {
-  const msg = input.value.trim();
-  if (!msg) return;
-  if (msg.length > CONFIG.MAX_LEN) { addMsg('sys', 'Message too long.'); return; }
-  addMsg('user', msg);
-  input.value = ''; input.style.height = '44px';
-  typing.classList.add('show');
-
-  try {
-    const res = await fetch(CONFIG.API_BASE + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: msg, context: '' })
-    });
-    const data = await res.json();
-    typing.classList.remove('show');
-    if (data.success) addMsg('assistant', data.response);
-    else addMsg('sys', 'Failed to get response.');
-  } catch (err) {
-    typing.classList.remove('show');
-    addMsg('sys', 'Network error.');
-  }
-}
-
-// Voice
-micBtn.onclick = () => (recording ? stopVoice() : startVoice());
-
 async function startVoice() {
   try {
-    micBtn.classList.add('active'); micBtn.title = 'Stop voice'; micBtn.innerHTML = '<span class="mic-ring"></span>⏹';
+    micBtn.classList.add('active');
+    micBtn.title = 'Stop voice';
+    micBtn.innerHTML = '<span class="mic-ring"></span>⏹';
     setStatus('connecting', 'Connecting...');
     modeLabel.textContent = 'Voice mode';
 
@@ -334,47 +16,29 @@ async function startVoice() {
 
       ac = new (window.AudioContext || window.webkitAudioContext)();
       micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false }
       });
       srcNode = ac.createMediaStreamSource(micStream);
-      analyser = ac.createAnalyser(); analyser.fftSize = 1024;
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
-      srcNode.connect(analyser);
-
       proc = ac.createScriptProcessor(4096, 1, 1);
       srcNode.connect(proc); proc.connect(ac.destination);
+
       proc.onaudioprocess = (e) => {
         const input = e.inputBuffer.getChannelData(0);
-        
-        // Calculate RMS for volume detection
         let rms = 0;
-        for (let i = 0; i < input.length; i++) {
-          rms += input[i] * input[i];
-        }
+        for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
         rms = Math.sqrt(rms / input.length);
-        
-        // Skip silent audio
         if (rms < 0.01) return;
-        
-        // CRITICAL FIX: Convert Float32 to Int16 PCM16
         const pcm16 = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
           const s = Math.max(-1, Math.min(1, input[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
-        
-        // Convert to base64 in chunks to avoid call stack issues
         const bytes = new Uint8Array(pcm16.buffer);
-        let binary = '';
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
+        let binary = '', chunkSize = 0x4000;
+        for (let i = 0; i < bytes.length; i += chunkSize)
           binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-        }
-        
-        // Send to backend
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN)
           ws.send(JSON.stringify({ type: 'audio_data', data: btoa(binary) }));
-        }
       };
 
       recording = true;
@@ -386,98 +50,10 @@ async function startVoice() {
       if (data.type === 'transcript') addMsg('assistant', '🔊 ' + data.text);
       if (data.type === 'audio_response') playPCM16Hex(data.data);
       if (data.type === 'error') addMsg('sys', 'Voice error: ' + data.message);
-      if (data.type === 'session_closed') setStatus('', 'Disconnected');
-    };
-
-    ws.onclose = () => {
-      setStatus('', 'Disconnected');
-      stopHeartbeat();
     };
 
   } catch (err) {
     addMsg('sys', 'Mic/WebSocket error: ' + err.message);
-    cleanupAudio();
-    micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
-    modeLabel.textContent = '';
-    setStatus('', 'Disconnected');
+    stopVoice();
   }
 }
-
-function stopVoice() {
-  if (!recording) return;
-  recording = false;
-  micBtn.classList.remove('active'); micBtn.title = 'Start voice'; micBtn.innerHTML = '<span class="mic-ring"></span>🎙️';
-  modeLabel.textContent = '';
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'stop_session' }));
-    setTimeout(() => { try { ws.close(); } catch (e) { } }, 400);
-  }
-  stopHeartbeat();
-  cleanupAudio();
-  setStatus('', 'Disconnected');
-}
-
-function cleanupAudio() {
-  if (proc) { try { proc.disconnect() } catch { } proc = null; }
-  if (srcNode) { try { srcNode.disconnect() } catch { } srcNode = null; }
-  if (micStream) { try { micStream.getTracks().forEach(t => t.stop()) } catch { } micStream = null; }
-  if (ac) { try { ac.close() } catch { } ac = null; }
-}
-
-// --- CRITICAL FIX: Proper PCM16 playback ---
-function playPCM16Hex(hex) {
-  try {
-    // Convert hex string to bytes
-    const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-    const samples = bytes.length / 2;
-    
-    // Use browser's sample rate - browser handles resampling from 24kHz
-    const buf = ctx.createBuffer(1, samples, ctx.sampleRate);
-    const ch = buf.getChannelData(0);
-    
-    // Convert Int16 PCM to Float32 using DataView
-    const dv = new DataView(bytes.buffer);
-    for (let i = 0; i < samples; i++) {
-      const v = dv.getInt16(i * 2, true); // little-endian
-      ch[i] = v / 0x8000;
-    }
-    
-    bufferQueue.push(buf);
-    if (!playing) playNext();
-  } catch (e) {
-    console.error('Playback error:', e);
-  }
-}
-
-function playNext() {
-  if (!bufferQueue.length) { playing = false; return; }
-  playing = true;
-  const src = ctx.createBufferSource();
-  src.buffer = bufferQueue.shift();
-
-  // Fade in/out for smoother voice
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.0, ctx.currentTime);
-  gain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05);
-  gain.gain.linearRampToValueAtTime(0.85, ctx.currentTime + 0.15);
-
-  src.connect(gain).connect(ctx.destination);
-  src.onended = playNext;
-  src.start();
-}
-
-function startHeartbeat() {
-  stopHeartbeat();
-  heartbeat = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-  }, CONFIG.HEARTBEAT_MS);
-}
-
-function stopHeartbeat() {
-  if (heartbeat) clearInterval(heartbeat);
-  heartbeat = null;
-}
-
-  </script>
-</body>
-</html>
