@@ -192,7 +192,7 @@ SESSIONS: Dict[str, Dict] = {}
 svc = OpenAIService()
 
 @app.get("/")
-async def root(): return FileResponse("index.html")
+async def root(): return FileResponse("static/index.html")
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(m: ChatMessage):
